@@ -1,0 +1,12 @@
+*.com
+*.exe
+*.obj
+*.o
+*.lst
+*.map
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+*.asm~
