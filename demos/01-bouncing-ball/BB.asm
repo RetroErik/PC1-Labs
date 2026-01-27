@@ -1,7 +1,7 @@
 ; Bouncing Ball Demo using PC1 Hardware Sprite
 ; For Olivetti PC1 with NEC V40 CPU
 ; Assemble with NASM: nasm -f bin BB.asm -o BB.com
-; Created by RetroErik - 2026
+; Created by RetroErik - 2026 V. 0.1
 
 CPU 186
 
