@@ -1,0 +1,122 @@
+================================================================================
+PORT_COLOR RASTER BARS ON OLIVETTI PRODEST PC1 (V6355D)
+Lessons Learned - February 2026
+================================================================================
+
+GOAL:
+Create classic "demo scene" raster bars - horizontal color bands that appear
+to float over the screen, animated vertically. Like Amiga/C64 copper bars.
+
+--------------------------------------------------------------------------------
+WHAT WE LEARNED
+--------------------------------------------------------------------------------
+
+1. PORT_COLOR (0x3D9) WORKS FOR BORDER COLOR
+   - Writing to PORT_COLOR changes the border/overscan color
+   - The color value is a 4-bit PALETTE INDEX (0-15), NOT direct RGB
+   - The border uses the SAME palette as the graphics mode
+   - Setting a solid color works perfectly - stable, no flicker
+
+2. PALETTE INDEX, NOT RGB
+   - We initially thought PORT_COLOR took RGB values directly
+   - WRONG! It's a palette lookup just like pixel colors
+   - If your image uses all 16 palette slots, the border will show
+     whatever colors the image defines
+   - Solution: Reserve palette entries (e.g., 14 and 15) for bar colors
+     and force them to red/green during palette setup
+
+3. PER-SCANLINE COLOR CHANGES CAUSE INTERLACE FLICKER
+   - The V6355D uses interlaced video (even/odd fields)
+   - Hsync-based scanline tracking alternates between fields
+   - Result: colors appear on different scanlines each frame = flicker
+   - Delay-based timing also suffers from field alternation
+   - This is a HARDWARE LIMITATION of interlaced displays
+
+4. HSYNC TIMING ISSUES
+   - PORT_STATUS bit 0 = hsync signal
+   - Tracking hsync for 200 scanlines is slow (~200 reads per frame)
+   - Combined with interlace, the timing drifts between fields
+   - Even with perfect timing, you get alternating black/color lines
+
+5. WHAT WORKS vs WHAT DOESN'T
+
+   WORKS:
+   ✓ Solid border color (one color, whole frame)
+   ✓ Color changes BETWEEN frames (pulsing/cycling effects)
+   ✓ Color changes during VBlank (top/bottom border only)
+
+   DOESN'T WORK (on V6355D):
+   ✗ Per-scanline color bars during active display
+   ✗ "Copper bar" style effects mid-screen
+   ✗ Smooth raster bars that move vertically
+
+--------------------------------------------------------------------------------
+TECHNICAL DETAILS
+--------------------------------------------------------------------------------
+
+V6355D Palette Format:
+  - 16 colors, 2 bytes each (32 bytes total)
+  - Byte 1: Red (bits 0-2, values 0-7)
+  - Byte 2: Green (bits 4-6) | Blue (bits 0-2)
+  - Registers 0x40-0x5F via PORT_REG_ADDR/DATA
+
+PORT_COLOR (0x3D9):
+  - Lower 4 bits = palette index for border color
+  - Changes take effect immediately
+  - BUT interlace causes visible flicker when changing mid-frame
+
+PORT_STATUS (0x3DA):
+  - Bit 0 = Horizontal sync (hsync)
+  - Bit 3 = Vertical blank (VBlank)
+  - VBlank is ~1.4ms on PAL timing
+
+--------------------------------------------------------------------------------
+WHY RBARS4.ASM WORKED
+--------------------------------------------------------------------------------
+
+The standalone rbars4.asm demo appeared to work because:
+1. It set its OWN custom palette with red/green gradients
+2. It ran in a tight loop with nothing else happening
+3. It may have benefited from specific timing conditions
+
+When combined with BMP display:
+- BMP palette overwrites raster bar colors
+- Image copy takes time, affecting timing
+- Interlace flicker becomes more noticeable
+
+--------------------------------------------------------------------------------
+ALTERNATIVES FOR DEMO EFFECTS
+--------------------------------------------------------------------------------
+
+1. FRAME-BASED COLOR CYCLING
+   Change border color once per frame for pulsing/breathing effects.
+   Simple, stable, visually appealing.
+
+2. PALETTE ANIMATION
+   Cycle palette entries each frame to animate colors in the image itself.
+   The "color cycling" technique from 8-bit era.
+
+3. HORIZONTAL SCROLL EFFECTS
+   Use hardware scroll registers (if available on V6355D) for smoother motion.
+
+4. SPRITE OVERLAYS
+   If the V6355D supports sprites, use them for overlay effects.
+
+--------------------------------------------------------------------------------
+CONCLUSION
+--------------------------------------------------------------------------------
+
+Per-scanline raster bars are not practical on the Olivetti Prodest PC1's
+V6355D display due to interlaced video. The alternating fields cause
+visible flicker that cannot be avoided with software timing.
+
+For demo effects on this hardware, focus on:
+- Frame-based color animation
+- Palette cycling
+- Smooth scrolling
+- Clean, optimized graphics
+
+The PORT_COLOR register works well for solid border colors and can be
+used for subtle pulsing effects when changed once per frame.
+
+================================================================================

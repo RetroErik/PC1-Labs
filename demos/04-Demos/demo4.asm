@@ -1,5 +1,5 @@
 ; ============================================================================
-; DEMO3.ASM - BMP Image with Animated Raster Bars
+; DEMO4.ASM - BMP Image with Animated Raster Bars from RAM Buffer
 ; Olivetti Prodest PC1 - V6355D 160x200x16 Hidden Graphics Mode
 ; Written for NASM - NEC V40 @ 8 MHz (8086 instruction set only)
 ; By RetroErik - 2026 with GitHub Copilot
@@ -10,43 +10,143 @@
 ;   The bars use reserved palette entries 14 and 15 which are updated
 ;   during VBlank for smooth, flicker-free color cycling.
 ;
+; ============================================================================
+; RAM BUFFER DESIGN
+; ============================================================================
+;
+;   The BMP is first decoded entirely into a 16KB RAM buffer (image_buffer),
+;   then copied to VRAM using fast REP MOVSW block transfers.
+;   The RAM buffer serves as the "master copy" of the background image.
+;
 ; How it works:
-;   1. Load BMP image to VRAM (assumes image doesn't use colors 14, 15)
-;   2. Draw bar "strips" into VRAM using palette indices 14 and 15
-;   3. Each frame during VBlank:
+;   1. Load BMP image into RAM buffer (not directly to VRAM)
+;   2. Copy entire image from RAM to VRAM using REP MOVSW
+;   3. Draw bar "strips" into VRAM using palette indices 14 and 15
+;   4. Each frame during VBlank:
 ;      a. Update palette entries 14/15 with new gradient colors
-;      b. Erase old bar strips (restore original pixels)
+;      b. Erase old bar strips (restore from RAM buffer, not VRAM backup)
 ;      c. Calculate new bar positions using sine tables
 ;      d. Draw new bar strips at updated Y positions
-;   4. Bars appear to float over the static BMP image
+;   5. Bars appear to float over the static BMP image
 ;
-; COLOR CYCLING TECHNIQUE: (commented out)
-;   The bars themselves are drawn as solid horizontal strips using fixed
-;   palette indices (14 and 15). The pixels in VRAM never change color index -
+; VRAM LAYOUT (CGA-style interlacing):
+;   - Segment 0xB000, 16KB total
+;   - Even rows (0, 2, 4...): offset = (row/2) * 80
+;   - Odd rows (1, 3, 5...):  offset = 0x2000 + (row/2) * 80
+;   - Each bank is 8KB (100 rows × 80 bytes)
+;
+; RAM BUFFER LAYOUT (linear for simplicity):
+;   - 16,000 bytes total (160×200×4-bit = 80 bytes × 200 rows)
+;   - Row N at offset: N * 80
+;
+; RASTER BAR RESTORE TECHNIQUE:
+;   Instead of backing up VRAM scanlines before drawing bars, we use the
+;   RAM image buffer as the master copy. When restoring scanlines after
+;   the bar passes, we copy from RAM→VRAM using REP MOVSB/MOVSW.
+;   This avoids slow VRAM→RAM reads during the raster effect.
+;
+; ============================================================================
+; HOW THE RASTER BARS WORK (Current Implementation)
+; ============================================================================
+;
+; PALETTE-CYCLING SOLID BARS:
+;   The bars are drawn as solid horizontal strips using fixed palette indices
+;   (14 and 15). The VRAM pixels never change index value during animation -
 ;   they always contain 0xEE (palette 14) or 0xFF (palette 15).
 ;
-;   The "color animation" happens by changing what color those palette indices
-;   actually display. During VBlank, we write new RGB values to palette
-;   registers 14 and 15 in the V6355D. This instantly changes the displayed
-;   color of all pixels using those indices.
+;   The "color animation" happens by changing what RGB color those palette
+;   indices actually display. During VBlank, we write new RGB values to
+;   palette registers 14 and 15 in the V6355D. This instantly changes the
+;   displayed color of all pixels using those indices.
 ;
 ;   This is extremely efficient because:
 ;   - We only write 4 bytes to the palette per frame (2 colors × 2 bytes)
 ;   - No VRAM writes needed for color changes
 ;   - Smooth gradients with zero flicker (palette changes are atomic)
 ;
-;   V6355D Palette Format (2 bytes per color):
-;   - Byte 1: Red intensity (bits 0-2, values 0-7)
-;   - Byte 2: Green (bits 4-6) | Blue (bits 0-2)
+;   V6355D Color System:
+;   - 512 possible colors (3 bits R, 3 bits G, 3 bits B = 8×8×8)
+;   - 16 on-screen palette entries, each can be ANY of the 512 colors
+;   - Format: 2 bytes per color:
+;       Byte 1: Red intensity (bits 0-2, values 0-7)
+;       Byte 2: Green (bits 4-6) | Blue (bits 0-2)
 ;   - Palette starts at register 0x40, so color N is at 0x40 + (N*2)
 ;
-; VBlank Timing & Palette Safety:
+;   The 16-entry gradient tables (green_gradient, blue_gradient) define
+;   the color wave animation. Each frame advances through the table,
+;   creating a smooth "breathing" or "pulsing" color effect.
+;
+; ============================================================================
+; ALTERNATIVE TECHNIQUE #1: Multi-Color Gradient Bars (Palette Trade-off)
+; ============================================================================
+;
+; Instead of 1 solid color per bar, use 3-4 palette entries per bar to
+; draw actual gradient bands (dark edges → bright center → dark edges):
+;
+;   Palette allocation example:
+;   - Colors 0-9:   BMP image (10 colors)
+;   - Colors 10-12: Bar 1 gradient (dark red, red, bright red)
+;   - Colors 13-15: Bar 2 gradient (dark cyan, cyan, bright cyan)
+;
+;   Each bar is drawn with multiple horizontal bands:
+;   - Scanlines 0-3:   palette 10 (dark)
+;   - Scanlines 4-7:   palette 11 (medium)  
+;   - Scanlines 8-11:  palette 12 (bright) ← center
+;   - Scanlines 12-15: palette 11 (medium)
+;   - Scanlines 16-19: palette 10 (dark)
+;
+;   PROS:
+;   - True C64-style gradient appearance
+;   - Still benefits from palette cycling (all gradient colors shift together)
+;
+;   CONS:
+;   - Fewer colors available for the BMP image (10 instead of 14)
+;   - More complex draw_strip code (must track multiple palette indices)
+;   - Images with >10 colors will look degraded
+;
+; ============================================================================
+; ALTERNATIVE TECHNIQUE #2: HSync Palette Switching (Copper-bar Style)
+; ============================================================================
+;
+; Use only 1 palette entry per bar, but change its color MID-FRAME at
+; specific scanlines during active display:
+;
+;   During frame drawing:
+;   - Wait for scanline 50 → set palette 14 = dark green
+;   - Wait for scanline 53 → set palette 14 = medium green
+;   - Wait for scanline 56 → set palette 14 = bright green (center)
+;   - Wait for scanline 59 → set palette 14 = medium green
+;   - Wait for scanline 62 → set palette 14 = dark green
+;
+;   The result: a single palette entry appears as multiple colors within
+;   the same frame! This is how the Amiga "copper" created rainbow bars.
+;
+;   PROS:
+;   - Uses only 1 palette entry per bar (14 image colors preserved!)
+;   - Theoretically unlimited gradient steps
+;   - True demoscene technique
+;
+;   CONS:
+;   - Requires cycle-exact timing synchronized with the raster beam
+;   - Must reprogram palette during HBlank (~10-15 microseconds window)
+;   - V6355D I/O is slow; may not complete within HBlank
+;   - CPU must poll PORT_STATUS for HSync timing (wastes cycles)
+;   - Very difficult to stabilize - prone to visual "wobble" or jitter
+;   - The PC1's 8MHz NEC V40 may not be fast enough for stable results
+;
+;   On the Amiga, dedicated hardware (Copper coprocessor) handled this.
+;   The PC1 has no such hardware, making this technique challenging.
+;
+; ============================================================================
+; VBlank Timing & Palette Safety
+; ============================================================================
+;
 ;   - All palette updates occur during VBlank (bit 3 of PORT_STATUS)
 ;   - VBlank is ~1.4ms on PAL timing - enough time for palette writes
 ;   - Writing during VBlank avoids "snow" artifacts and color tearing
 ;   - Bar strip drawing also occurs during VBlank for clean animation
 ;
-; Usage: DEMO2 filename.bmp
+; Usage: DEMO4 filename.bmp
 ;        Press any key to exit
 ;
 ; Prerequisites:
@@ -81,6 +181,8 @@ PORT_STATUS     equ 0x3DA       ; Status (bit 0=hsync, bit 3=vblank)
 SCREEN_WIDTH    equ 160
 SCREEN_HEIGHT   equ 200
 SCREEN_SIZE     equ 16384       ; Full video RAM (16KB)
+IMAGE_SIZE      equ 16000       ; RAM buffer size (80 bytes × 200 rows)
+BYTES_PER_LINE  equ 80          ; 160 pixels / 2 pixels per byte
 
 ; BMP File Header offsets
 BMP_SIGNATURE   equ 0           ; 'BM' signature (2 bytes)
@@ -93,14 +195,16 @@ BMP_COMPRESSION equ 30          ; Compression (dword, 0=none)
 ; ============================================================================
 ; RASTER BAR CONFIGURATION
 ; ============================================================================
-; Bars use palette indices 14 and 15 - these must be free in the BMP!
-; Each bar is drawn as horizontal strips in VRAM, then the palette
-; colors 14/15 are cycled during VBlank for smooth animation.
+; Animated solid bars using palette indices 14 and 15
+; The bars appear as solid colors that "pulse" by cycling palette entries
+; Palette 0-13 is used by the BMP image, only 14-15 are reserved for bars
 ; ============================================================================
 
-BAR_HEIGHT      equ 8           ; Height of each bar in scanlines
-BAR1_PALETTE    equ 14          ; Palette index for bar 1
-BAR2_PALETTE    equ 15          ; Palette index for bar 2
+BAR_HEIGHT      equ 12          ; Height of each bar in scanlines
+
+; Palette index for each bar (these entries cycle through colors)
+BAR1_PALETTE    equ 14          ; Bar 1 uses palette index 14 (green cycle)
+BAR2_PALETTE    equ 15          ; Bar 2 uses palette index 15 (blue cycle)
 
 ; Per-bar speed (higher = faster wobble)
 BAR1_SPEED      equ 2           ; Bar 1 sine index increment per frame
@@ -118,7 +222,7 @@ BAR2_PHASE      equ 85          ; Bar 2 starts 1/3 cycle offset (120 degrees)
 SINE_AMPLITUDE  equ 50          ; Maximum distance from center
 
 ; Color cycling speed (frames per color step)
-COLOR_SPEED     equ 6           ; Lower = faster color cycling (was 2, now slower)
+COLOR_SPEED     equ 12          ; Higher = slower color cycling (smoother wave)
 
 ; ============================================================================
 ; Main Program Entry Point
@@ -215,10 +319,36 @@ main:
     int 0x21
     jc .file_error
     
-    ; Enable graphics mode
+    ; Display loading message centered in text mode
+    ; Clear screen first using BIOS
+    mov ax, 0x0003              ; Set 80x25 text mode (clears screen)
+    int 0x10
+    
+    ; Position cursor to center of screen (row 12, column 22)
+    mov ah, 0x02                ; Set cursor position
+    mov bh, 0                   ; Page 0
+    mov dh, 12                  ; Row 12 (middle of 25 rows)
+    mov dl, 22                  ; Column 22 (center for ~36 char message)
+    int 0x10
+    
+    ; Print the loading message
+    mov dx, msg_loading
+    mov ah, 0x09
+    int 0x21
+    
+    ; Decode BMP into RAM buffer while still in text mode
+    ; (loading message stays visible during file read)
+    call decode_bmp
+    
+    ; Close file (done reading)
+    mov bx, [file_handle]
+    mov ah, 0x3E
+    int 0x21
+    
+    ; NOW switch to graphics mode after loading is complete
     call enable_graphics_mode
     
-    ; Blank video output during load (prevents flicker)
+    ; Blank video output during VRAM setup (prevents flicker)
     mov dx, PORT_MODE
     mov al, 0x42                ; Graphics mode, video OFF
     out dx, al
@@ -232,14 +362,10 @@ main:
     ; Force palette 0 to true black (some BMPs have off-black)
     call force_black_palette0
     
-    ; Decode and display BMP
-    call decode_bmp
+    ; Copy entire image from RAM buffer to VRAM using fast block transfer
+    call copy_image_to_vram
     
-    ; Close file
-    mov bx, [file_handle]
-    mov ah, 0x3E
-    int 0x21
-    
+.file_closed:
     ; Initialize bar animation state
     mov byte [bar1_sine_idx], BAR1_PHASE
     mov byte [bar2_sine_idx], BAR2_PHASE
@@ -278,13 +404,12 @@ main:
     ; We change what colors 14/15 display, not the pixels themselves.
     ; Safe because VBlank = no scanlines being drawn = no tearing
     ; --------------------------------------------------------------------
-    ; DISABLED: Color cycling commented out for testing
-    ; call update_bar_palette
+    call update_bar_palette
     
     ; --------------------------------------------------------------------
     ; STEP 3: Restore old bar positions (erase old strips)
     ; Must restore original BMP pixels before drawing new bars
-    ; Uses saved backup data from previous frame
+    ; Copies from RAM image_buffer (master copy) to VRAM
     ; --------------------------------------------------------------------
     call restore_old_bars
     
@@ -295,8 +420,8 @@ main:
     call update_bar_positions
     
     ; --------------------------------------------------------------------
-    ; STEP 5: Backup and draw new bar strips
-    ; Save original pixels, then draw bars using palette 14/15
+    ; STEP 5: Draw new bar strips
+    ; Draw bars using palette 14/15 (no backup needed - RAM buffer is master)
     ; --------------------------------------------------------------------
     call draw_bar_strips
     
@@ -439,10 +564,12 @@ update_bar_palette:
     
     ; -----------------------------------------------------------------------
     ; STEP A: Select palette register 14 (address = 0x40 + 14*2 = 0x5C)
-    ; Writing to PORT_PAL_ADDR sets which V6355D register we'll modify
+    ; Writing to PORT_REG_ADDR sets which V6355D register we'll modify
+    ; Must use DX for 16-bit port addresses (> 255)
     ; -----------------------------------------------------------------------
+    mov dx, PORT_REG_ADDR
     mov al, 0x5C
-    out PORT_PAL_ADDR, al
+    out dx, al
     jmp short $+2               ; I/O delay (required for V6355D timing)
     
     ; -----------------------------------------------------------------------
@@ -450,12 +577,13 @@ update_bar_palette:
     ; Byte 1 = Red (bits 0-2), Byte 2 = Green (bits 4-6) | Blue (bits 0-2)
     ; After each write, register address auto-increments
     ; -----------------------------------------------------------------------
+    mov dx, PORT_REG_DATA
     mov si, green_gradient
     mov al, [si + bx]           ; Get Red byte from gradient table
-    out PORT_PAL_DATA, al       ; Write to register 0x5C (color 14, red)
+    out dx, al                  ; Write to register 0x5C (color 14, red)
     jmp short $+2
     mov al, [si + bx + 1]       ; Get Green|Blue byte from gradient table  
-    out PORT_PAL_DATA, al       ; Write to register 0x5D (color 14, green|blue)
+    out dx, al                  ; Write to register 0x5D (color 14, green|blue)
     jmp short $+2               ; After this, register pointer is at 0x5E
     
     ; -----------------------------------------------------------------------
@@ -464,15 +592,16 @@ update_bar_palette:
     ; -----------------------------------------------------------------------
     mov si, blue_gradient
     mov al, [si + bx]           ; Get Red byte from gradient table
-    out PORT_PAL_DATA, al       ; Write to register 0x5E (color 15, red)
+    out dx, al                  ; Write to register 0x5E (color 15, red)
     jmp short $+2
     mov al, [si + bx + 1]       ; Get Green|Blue byte from gradient table
-    out PORT_PAL_DATA, al       ; Write to register 0x5F (color 15, green|blue)
+    out dx, al                  ; Write to register 0x5F (color 15, green|blue)
     jmp short $+2
     
     ; IMPORTANT: Disable palette write mode
+    mov dx, PORT_REG_ADDR
     mov al, 0x80
-    out PORT_PAL_ADDR, al
+    out dx, al
     
     sti                         ; Re-enable interrupts
     
@@ -538,6 +667,8 @@ update_bar_positions:
 ; restore_old_bars - Restore original BMP pixels at old bar positions
 ; IMPORTANT: Must restore in REVERSE order of drawing to handle overlaps!
 ; If bar1 was behind (drawn first), we must restore bar2 first, then bar1.
+;
+; NEW: restore_strip reads from image_buffer, no backup buffers needed.
 ; ============================================================================
 restore_old_bars:
     push ax
@@ -563,22 +694,18 @@ restore_old_bars:
     
     ; Bar2 was behind → restore bar1 first, then bar2
     mov al, [bar1_old_y]
-    mov si, bar1_backup
     call restore_strip
     
     mov al, [bar2_old_y]
-    mov si, bar2_backup
     call restore_strip
     jmp .skip_restore
     
 .bar1_was_behind:
     ; Bar1 was behind → restore bar2 first, then bar1
     mov al, [bar2_old_y]
-    mov si, bar2_backup
     call restore_strip
     
     mov al, [bar1_old_y]
-    mov si, bar1_backup
     call restore_strip
     
 .skip_restore:
@@ -592,39 +719,45 @@ restore_old_bars:
     ret
 
 ; ----------------------------------------------------------------------------
-; restore_strip - Restore a horizontal strip from backup
-; Input: AL = Y position, SI = backup buffer address
-; Clobbers: AX, BX, CX, DI
+; restore_strip - Restore a horizontal strip from RAM image buffer
+; Input: AL = Y position (SI parameter is now ignored - we use RAM buffer)
+; Clobbers: AX, BX, CX, DI, SI
+;
+; NEW: Reads from image_buffer (master copy) instead of VRAM backup.
+;      This avoids VRAM→RAM reads which are slower than RAM→VRAM writes.
 ; ----------------------------------------------------------------------------
 restore_strip:
     push dx
     push bp
     
-    mov bp, si                  ; BP = backup buffer pointer
-    
+    mov bl, al                  ; Save starting Y position in BL
     mov cl, BAR_HEIGHT
     xor ch, ch
     
 .restore_row:
     push cx
-    push ax
+    push bx
     
-    ; Calculate VRAM offset for this row
+    mov al, bl                  ; AL = current Y position
+    
+    ; Calculate VRAM offset for this row (CGA interlaced)
     call calc_vram_offset       ; Returns offset in DI
     
-    ; Copy 80 bytes from backup (DS:BP) to VRAM (ES:DI)
-    mov si, bp                  ; SI = backup source
-    mov cx, 80
-.copy_byte:
-    lodsb                       ; AL = [DS:SI], SI++
-    mov [es:di], al             ; Write to VRAM
-    inc di
-    loop .copy_byte
+    ; Calculate RAM buffer offset for this row: Y * 80 (linear)
+    xor ah, ah
+    mov al, bl                  ; AL = Y position
+    mov bp, BYTES_PER_LINE
+    mul bp                      ; AX = Y * 80
+    mov si, image_buffer
+    add si, ax                  ; SI = image_buffer + (Y * 80)
     
-    mov bp, si                  ; Update backup pointer for next row
+    ; Copy 80 bytes from RAM buffer (DS:SI) to VRAM (ES:DI) using REP MOVSB
+    mov cx, BYTES_PER_LINE
+    cld
+    rep movsb                   ; Fast block copy
     
-    pop ax
-    inc al                      ; Next row
+    pop bx
+    inc bl                      ; Next row
     pop cx
     loop .restore_row
     
@@ -633,7 +766,9 @@ restore_strip:
     ret
 
 ; ============================================================================
-; draw_bar_strips - Backup original pixels and draw bar strips
+; draw_bar_strips - Draw bar strips (no VRAM backup needed - uses RAM buffer)
+;
+; NEW: No longer backs up VRAM pixels. restore_strip reads from image_buffer.
 ; ============================================================================
 draw_bar_strips:
     push ax
@@ -654,27 +789,23 @@ draw_bar_strips:
     
     ; Bar 2 is behind (draw first, bar 1 on top)
     mov al, [bar2_y]
-    mov di, bar2_backup
-    mov bl, BAR2_PALETTE
-    call backup_and_draw_strip
+    mov bl, BAR2_PALETTE        ; Palette 15 (blue cycle)
+    call draw_strip
     
     mov al, [bar1_y]
-    mov di, bar1_backup
-    mov bl, BAR1_PALETTE
-    call backup_and_draw_strip
+    mov bl, BAR1_PALETTE        ; Palette 14 (green cycle)
+    call draw_strip
     jmp .done
     
 .bar1_behind:
     ; Bar 1 is behind (draw first, bar 2 on top)
     mov al, [bar1_y]
-    mov di, bar1_backup
     mov bl, BAR1_PALETTE
-    call backup_and_draw_strip
+    call draw_strip
     
     mov al, [bar2_y]
-    mov di, bar2_backup
     mov bl, BAR2_PALETTE
-    call backup_and_draw_strip
+    call draw_strip
     
 .done:
     ; Save the Y positions we just drew at for next frame's restore
@@ -693,72 +824,60 @@ draw_bar_strips:
     ret
 
 ; ----------------------------------------------------------------------------
-; backup_and_draw_strip - Backup pixels and draw a solid color strip
-; Input: AL = Y position, DI = backup buffer address, BL = palette index
+; draw_strip - Draw a solid color raster bar
+; Input: AL = Y position, BL = palette index (14 or 15)
 ; Uses ES = VIDEO_SEG (already set by caller)
+;
+; Draws BAR_HEIGHT scanlines of solid color using the palette index in BL.
+; The actual color displayed is set by update_bar_palette, which cycles
+; the palette entries 14/15 to create the "pulsing" animation effect.
 ; ----------------------------------------------------------------------------
-backup_and_draw_strip:
+draw_strip:
     push ax
+    push bx
     push cx
     push dx
-    push si
     push di
+    push si
     push bp
     
-    ; Save backup buffer pointer in BP
-    mov bp, di
+    mov bh, al                  ; BH = current Y position
     
-    ; Prepare the fill byte (two pixels of same palette index)
-    mov bh, bl
-    ; NEC V40 compatible: shl bh, 4 -> use CL
+    ; Create fill byte (two pixels of same palette index)
+    ; BL = palette index (14 or 15)
+    mov al, bl                  ; AL = palette index
     mov cl, 4
-    shl bh, cl
-    or bl, bh                   ; BL = packed pixels (e.g., 0xEE for palette 14)
+    shl al, cl                  ; AL = palette << 4 (high nibble)
+    or al, bl                   ; AL = palette | (palette << 4)
+    mov [fill_byte], al         ; Save fill byte in memory (DL gets clobbered)
     
-    mov cl, BAR_HEIGHT
-    xor ch, ch
+    mov bp, BAR_HEIGHT          ; BP = rows to draw
     
-.process_row:
-    push cx
-    push ax
+.draw_loop:
+    cmp bh, SCREEN_HEIGHT       ; Bounds check
+    jae .draw_done
     
     ; Calculate VRAM offset for this row
-    call calc_vram_offset       ; Returns offset in DI, clobbers AX
+    mov al, bh                  ; Y position
+    call calc_vram_offset       ; DI = VRAM offset (clobbers AX, DX)
     
-    ; Backup 80 bytes from VRAM (ES:DI) to backup buffer (DS:BP)
-    mov si, di                  ; SI = VRAM source offset
-    mov di, bp                  ; DI = backup destination offset
-    mov cx, 80
-.backup_byte:
-    mov al, [es:si]             ; Read from VRAM
-    mov [di], al                ; Write to backup buffer (DS:DI)
-    inc si
-    inc di
-    loop .backup_byte
-    
-    ; Update backup pointer for next row
-    mov bp, di                  ; BP now points to next row's backup area
-    
-    ; Restore DI to VRAM offset for drawing
-    mov di, si
-    sub di, 80                  ; DI = start of this row in VRAM
-    
-    ; Fill 80 bytes in VRAM with bar color
-    mov cx, 80
-    mov al, bl                  ; Bar color
+    ; Fill the scanline with the palette color
+    mov al, [fill_byte]         ; AL = fill byte from memory
+    mov cx, BYTES_PER_LINE
     cld
-    rep stosb                   ; Fast fill to ES:DI
+    rep stosb
     
-    pop ax
-    inc al                      ; Next row
-    pop cx
-    loop .process_row
+    inc bh                      ; Next scanline
+    dec bp
+    jnz .draw_loop
     
+.draw_done:
     pop bp
-    pop di
     pop si
+    pop di
     pop dx
     pop cx
+    pop bx
     pop ax
     ret
 
@@ -846,9 +965,10 @@ clear_screen:
     ret
 
 ; ============================================================================
-; set_bmp_palette - Set palette from BMP file, but preserve colors 14-15
+; set_bmp_palette - Set palette from BMP file, reserve colors 8-15 for bars
 ; BMP palette: 64 bytes (16 colors × 4 bytes BGRA)
 ; 6355 palette: 32 bytes (16 colors × 2 bytes)
+; Only loads BMP colors 0-7, then sets up bar gradient colors 8-15
 ; ============================================================================
 set_bmp_palette:
     push ax
@@ -856,17 +976,20 @@ set_bmp_palette:
     push cx
     push dx
     push si
+    push bp
     
     cli
     
     ; Enable palette write at register 0x40
+    mov dx, PORT_REG_ADDR
     mov al, 0x40
-    out PORT_PAL_ADDR, al
+    out dx, al
     jmp short $+2
     
     ; Convert colors 0-13 from BMP format to 6355 format
+    ; Palette 14-15 are reserved for bar animation (set below)
     mov si, bmp_header + 54     ; Palette starts at offset 54
-    mov cx, 14                  ; Only 14 colors (0-13)
+    mov bp, 14                  ; BP = color counter (0-13 from BMP)
     
 .palette_loop:
     ; BMP stores as: Blue, Green, Red, Alpha
@@ -877,63 +1000,60 @@ set_bmp_palette:
     lodsb                       ; Red (need to convert 8-bit to 3-bit)
     
     ; NEC V40 compatible: shr al, 5 -> use CL for shift
-    push cx                     ; Save loop counter (we need CL for shift)
     mov cl, 5
     shr al, cl                  ; Convert Red to 3-bit (0-7)
-    pop cx                      ; Restore loop counter
     
-    out PORT_PAL_DATA, al
+    mov dx, PORT_REG_DATA
+    out dx, al
     jmp short $+2
     
     ; Combine Green and Blue
     mov al, bh                  ; Green
     and al, 0xE0                ; Keep upper 3 bits
     
-    push cx                     ; Save loop counter
     mov cl, 1
     shr al, cl                  ; Shift to bits 4-6
-    pop cx                      ; Restore loop counter
     
     mov ah, al                  ; Save green component
     mov al, bl                  ; Blue
     
-    push cx                     ; Save loop counter
     mov cl, 5
     shr al, cl                  ; Convert Blue to 3-bit
-    pop cx                      ; Restore loop counter
     
     or al, ah                   ; Combine: Green (4-6) | Blue (0-2)
-    out PORT_PAL_DATA, al
+    out dx, al
     jmp short $+2
     
     lodsb                       ; Skip alpha
-    loop .palette_loop
+    dec bp
+    jnz .palette_loop
     
-    ; Skip BMP colors 14-15 (we don't read them)
-    ; Instead, set our bar colors
+    ; Set initial bar colors (palette 14-15)
+    ; These will be animated by update_bar_palette
+    ; Palette 14 (bar 1): Start with bright green
+    mov al, 0x00                ; Red = 0
+    out dx, al
+    jmp short $+2
+    mov al, 0x70                ; Green = 7, Blue = 0
+    out dx, al
+    jmp short $+2
     
-    ; Color 14: Initial green color (will be animated)
-    mov al, 0x00                ; No red
-    out PORT_PAL_DATA, al
+    ; Palette 15 (bar 2): Start with bright blue  
+    mov al, 0x00                ; Red = 0
+    out dx, al
     jmp short $+2
-    mov al, 0x70                ; Pure green
-    out PORT_PAL_DATA, al
-    jmp short $+2
-    
-    ; Color 15: Initial blue color (will be animated)
-    mov al, 0x00                ; No red
-    out PORT_PAL_DATA, al
-    jmp short $+2
-    mov al, 0x07                ; Pure blue
-    out PORT_PAL_DATA, al
+    mov al, 0x07                ; Green = 0, Blue = 7
+    out dx, al
     jmp short $+2
     
     ; IMPORTANT: Disable palette write mode
+    mov dx, PORT_REG_ADDR
     mov al, 0x80
-    out PORT_PAL_ADDR, al
+    out dx, al
     
     sti
     
+    pop bp
     pop si
     pop dx
     pop cx
@@ -947,26 +1067,31 @@ set_bmp_palette:
 ; ============================================================================
 force_black_palette0:
     push ax
+    push dx
     
     cli
     
+    mov dx, PORT_REG_ADDR
     mov al, 0x40            ; Enable palette write, start at color 0
-    out PORT_PAL_ADDR, al
+    out dx, al
     jmp short $+2
     
+    mov dx, PORT_REG_DATA
     xor al, al              ; 0x00 = red byte (R=0)
-    out PORT_PAL_DATA, al
+    out dx, al
     jmp short $+2
     
     xor al, al              ; 0x00 = green/blue byte (G=0, B=0)
-    out PORT_PAL_DATA, al
+    out dx, al
     jmp short $+2
     
+    mov dx, PORT_REG_ADDR
     mov al, 0x80            ; Disable palette write (IMPORTANT!)
-    out PORT_PAL_ADDR, al
+    out dx, al
     
     sti
     
+    pop dx
     pop ax
     ret
 
@@ -976,36 +1101,48 @@ force_black_palette0:
 set_cga_palette:
     push ax
     push cx
+    push dx
     push si
     
     cli
     
+    mov dx, PORT_REG_ADDR
     mov al, 0x40
-    out PORT_PAL_ADDR, al
+    out dx, al
     jmp short $+2
     
+    mov dx, PORT_REG_DATA
     mov si, cga_colors
     mov cx, 32
     
 .pal_write_loop:
     lodsb
-    out PORT_PAL_DATA, al
+    out dx, al
     jmp short $+2
     loop .pal_write_loop
     
     ; IMPORTANT: Disable palette write mode
+    mov dx, PORT_REG_ADDR
     mov al, 0x80
-    out PORT_PAL_ADDR, al
+    out dx, al
     
     sti
     
     pop si
+    pop dx
     pop cx
     pop ax
     ret
 
 ; ============================================================================
-; decode_bmp - Read BMP pixel data to video memory
+; decode_bmp - Read BMP pixel data into RAM buffer (image_buffer)
+;
+; The BMP is decoded into a LINEAR RAM buffer, not directly to VRAM.
+; This allows fast RAM→VRAM block copies and serves as the master copy
+; for restoring scanlines after raster bar effects.
+;
+; RAM buffer layout: Row N at offset N * 80 (linear, 80 bytes per row)
+; If BMP is 320×200, it is downsampled to 160×200 (drop every 2nd pixel)
 ; ============================================================================
 decode_bmp:
     push ax
@@ -1016,8 +1153,9 @@ decode_bmp:
     push si
     push es
     
-    mov ax, VIDEO_SEG
-    mov es, ax
+    ; ES:DI will point to RAM buffer (in DS segment for .COM file)
+    push ds
+    pop es
     
     ; Get image dimensions
     mov ax, [bmp_header + 18]
@@ -1040,7 +1178,7 @@ decode_bmp:
 .height_ok:
     mov [image_height], ax
     
-    ; Calculate bytes per row
+    ; Calculate bytes per row in BMP file (4-byte aligned)
     mov ax, [image_width]
     inc ax
     shr ax, 1
@@ -1054,19 +1192,12 @@ decode_bmp:
     mov [current_row], ax
     
 .row_loop:
-    ; Calculate VRAM offset
+    ; Calculate RAM buffer offset: current_row * 80 (linear layout)
     mov ax, [current_row]
-    push ax
-    shr ax, 1
-    mov bx, 80
-    mul bx
-    mov di, ax
-    
-    pop ax
-    test al, 1
-    jz .is_even
-    add di, 0x2000
-.is_even:
+    mov bx, BYTES_PER_LINE
+    mul bx                      ; AX = row * 80
+    mov di, image_buffer
+    add di, ax                  ; DI = image_buffer + (row * 80)
     
     ; Read scanline from file
     mov bx, [file_handle]
@@ -1078,44 +1209,63 @@ decode_bmp:
     or ax, ax
     jz .decode_done
     
-    ; Border activity indicator (16-bit port, needs DX)
-    push dx
-    mov al, [border_ctr]
-    mov dx, PORT_COLOR
-    out dx, al
-    pop dx
-    inc byte [border_ctr]
-    and byte [border_ctr], 0x0F
-    
-    ; Copy or downsample
+    ; Copy or downsample to RAM buffer
     cmp byte [downsample_flag], 0
     je .no_downsample
     
-    ; Downsample 320 -> 160
+    ; Downsample 320 -> 160 (drop every second pixel)
     mov si, row_buffer
-    mov cx, 80
+    mov cx, BYTES_PER_LINE
 .downsample_loop:
-    lodsb
-    and al, 0xF0
+    lodsb                       ; Get byte with 2 pixels (P0, P1)
+    and al, 0xF0                ; Keep P0 in high nibble
     mov ah, al
-    lodsb
+    lodsb                       ; Get next byte (P2, P3)
     ; NEC V40 compatible: shr al, 4 -> use 4x shr al, 1
     shr al, 1
     shr al, 1
     shr al, 1
-    shr al, 1
-    or al, ah
-    mov [es:di], al
-    inc di
+    shr al, 1                   ; P2 now in low nibble
+    or al, ah                   ; AL = P0:P2 (dropped P1, P3)
+    stosb                       ; Store to RAM buffer (ES:DI)
+    
+    ; C64-style: change border every 8 bytes
+    push ax
+    mov ax, cx
+    and ax, 0x07
+    jnz .no_border_ds
+    mov al, [border_ctr]
+    mov dx, PORT_COLOR
+    out dx, al
+    inc byte [border_ctr]
+    and byte [border_ctr], 0x0F
+.no_border_ds:
+    pop ax
+    
     loop .downsample_loop
     jmp .row_done
     
 .no_downsample:
+    ; Copy 80 bytes to RAM buffer with C64-style border cycling
     mov si, row_buffer
-    mov cx, 80
+    mov cx, BYTES_PER_LINE
 .copy_loop:
     lodsb
     stosb
+    
+    ; C64-style: change border every 8 bytes
+    push ax
+    mov ax, cx
+    and ax, 0x07
+    jnz .no_border_copy
+    mov al, [border_ctr]
+    mov dx, PORT_COLOR
+    out dx, al
+    inc byte [border_ctr]
+    and byte [border_ctr], 0x0F
+.no_border_copy:
+    pop ax
+    
     loop .copy_loop
     
 .row_done:
@@ -1142,13 +1292,73 @@ decode_bmp:
     ret
 
 ; ============================================================================
+; copy_image_to_vram - Copy entire RAM buffer to VRAM using REP MOVSW
+;
+; Handles CGA-style interlacing:
+;   - Even rows (0,2,4...): VRAM offset = (row/2) * 80
+;   - Odd rows (1,3,5...):  VRAM offset = 0x2000 + (row/2) * 80
+;
+; RAM buffer is linear: Row N at offset N * 80
+; Uses REP MOVSW for maximum transfer speed (copies 2 bytes at a time)
+; ============================================================================
+copy_image_to_vram:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push si
+    push ds
+    push es
+    
+    ; Set up segments: DS = code segment (RAM buffer), ES = VRAM
+    mov ax, VIDEO_SEG
+    mov es, ax
+    
+    ; Copy even rows (0, 2, 4, ... 198) to VRAM bank 0
+    mov si, image_buffer        ; Start of RAM buffer
+    xor di, di                  ; Start of VRAM bank 0
+    mov dx, 100                 ; 100 even rows
+    
+.copy_even_rows:
+    mov cx, 40                  ; 80 bytes / 2 = 40 words
+    cld
+    rep movsw                   ; Copy one row (80 bytes)
+    add si, BYTES_PER_LINE      ; Skip odd row in RAM buffer
+    dec dx
+    jnz .copy_even_rows
+    
+    ; Copy odd rows (1, 3, 5, ... 199) to VRAM bank 1
+    mov si, image_buffer + BYTES_PER_LINE  ; Row 1 in RAM buffer
+    mov di, 0x2000              ; Start of VRAM bank 1 (odd rows)
+    mov dx, 100                 ; 100 odd rows
+    
+.copy_odd_rows:
+    mov cx, 40                  ; 80 bytes / 2 = 40 words
+    cld
+    rep movsw                   ; Copy one row (80 bytes)
+    add si, BYTES_PER_LINE      ; Skip even row in RAM buffer
+    dec dx
+    jnz .copy_odd_rows
+    
+    pop es
+    pop ds
+    pop si
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ============================================================================
 ; Data Section
 ; ============================================================================
 
-msg_info    db 'DEMO2 v1.0 - BMP + Raster Bars Demo for Olivetti PC1', 0x0D, 0x0A
+msg_info    db 'DEMO3 v1.0 - BMP + Raster Bars Demo for Olivetti PC1', 0x0D, 0x0A
             db 'Displays BMP with animated raster bar overlay.', 0x0D, 0x0A
             db 0x0D, 0x0A
-            db 'Usage: DEMO2 filename.bmp', 0x0D, 0x0A
+            db 'Usage: DEMO3 filename.bmp', 0x0D, 0x0A
             db '       BMP must NOT use palette colors 14-15', 0x0D, 0x0A
             db 0x0D, 0x0A
             db 'Press any key to exit.', 0x0D, 0x0A
@@ -1157,6 +1367,7 @@ msg_info    db 'DEMO2 v1.0 - BMP + Raster Bars Demo for Olivetti PC1', 0x0D, 0x0
 msg_file_err db 'Error: Cannot open file', 0x0D, 0x0A, '$'
 msg_not_bmp  db 'Error: Not a valid BMP file', 0x0D, 0x0A, '$'
 msg_format   db 'Error: BMP must be 4-bit uncompressed', 0x0D, 0x0A, '$'
+msg_loading  db 'Loading demo, please wait...', '$'
 
 ; File handling
 filename_ptr    dw 0
@@ -1177,60 +1388,62 @@ bar1_sine_idx   db 0            ; Bar 1 sine table index
 bar2_sine_idx   db 0            ; Bar 2 sine table index
 color_cycle_idx db 0            ; Current color in gradient
 color_frame_ctr db 0            ; Frame counter for color speed
+front_bar       db 0            ; Which bar is in front (for dancing effect)
+last_bar1_above db 1            ; Was bar1 above bar2 last frame?
+fill_byte       db 0            ; Temp storage for bar fill byte
 
 ; ============================================================================
-; Color gradient for bar 1 (green-yellow-cyan cycle)
+; Color Gradients for Palette Cycling Animation
+; 
+; These tables define the color cycling animation for palette entries 14 and 15.
+; Each entry is 2 bytes: Red (bits 0-2), Green<<4|Blue (bits 0-2)
+; The tables have 16 entries for smooth looping animation.
 ;
-; Format: 2 bytes per color entry
-;   Byte 1: Red intensity (bits 0-2 = 0-7)
-;   Byte 2: Green (bits 4-6) | Blue (bits 0-2)
-;
-; Cycles: Green -> Yellow -> White -> Cyan -> Green
+; update_bar_palette cycles through these tables each frame, giving the
+; solid-color bars a "breathing" or "pulsing" appearance.
 ; ============================================================================
+
+; Green gradient for Bar 1 (palette 14) - smooth cyan/green wave
+; Smoothly transitions: dark -> medium -> bright -> medium -> dark
+; Using cyan-green hues (G=0-7, B=0-5) for a cohesive wave
 green_gradient:
-    db 0x00, 0x70               ; 0:  Pure bright green
-    db 0x02, 0x70               ; 1:  Green + red = yellow-green
-    db 0x05, 0x70               ; 2:  More yellow
-    db 0x07, 0x70               ; 3:  Bright yellow
-    db 0x07, 0x77               ; 4:  White (all colors max)
-    db 0x05, 0x77               ; 5:  Light cyan-white
-    db 0x02, 0x77               ; 6:  Cyan
-    db 0x00, 0x77               ; 7:  Bright cyan
-    db 0x00, 0x75               ; 8:  Cyan-green
-    db 0x00, 0x73               ; 9:  More green
-    db 0x00, 0x70               ; 10: Pure green
-    db 0x00, 0x50               ; 11: Dark green
-    db 0x00, 0x30               ; 12: Darker green
-    db 0x00, 0x20               ; 13: Very dark
-    db 0x00, 0x40               ; 14: Medium green
-    db 0x00, 0x60               ; 15: Bright green
+    db 0x00, 0x10               ; 0:  Very dark green
+    db 0x00, 0x20               ; 1:  Dark green
+    db 0x00, 0x31               ; 2:  Dark green + hint blue
+    db 0x00, 0x42               ; 3:  Medium green-cyan
+    db 0x00, 0x53               ; 4:  Medium-bright cyan
+    db 0x00, 0x64               ; 5:  Bright cyan
+    db 0x00, 0x75               ; 6:  Very bright cyan
+    db 0x00, 0x76               ; 7:  Peak brightness cyan
+    db 0x00, 0x75               ; 8:  Very bright cyan (descending)
+    db 0x00, 0x64               ; 9:  Bright cyan
+    db 0x00, 0x53               ; 10: Medium-bright cyan
+    db 0x00, 0x42               ; 11: Medium green-cyan
+    db 0x00, 0x31               ; 12: Dark green + hint blue
+    db 0x00, 0x20               ; 13: Dark green
+    db 0x00, 0x10               ; 14: Very dark green
+    db 0x00, 0x20               ; 15: Dark green (smooth loop)
 
-; ============================================================================
-; Color gradient for bar 2 (blue-magenta-cyan cycle)
-;
-; Format: 2 bytes per color entry
-;   Byte 1: Red intensity (bits 0-2 = 0-7)
-;   Byte 2: Green (bits 4-6) | Blue (bits 0-2)
-;
-; Cycles: Blue -> Magenta -> Red -> Magenta -> Blue -> Cyan
-; ============================================================================
+; Blue gradient for Bar 2 (palette 15) - smooth magenta/purple wave
+; Smoothly transitions: dark -> medium -> bright -> medium -> dark
+; Using magenta-blue hues (R=0-7, B=3-7) for a cohesive wave
 blue_gradient:
-    db 0x00, 0x07               ; 0:  Pure bright blue
-    db 0x02, 0x07               ; 1:  Blue + red = purple
-    db 0x05, 0x07               ; 2:  Magenta
-    db 0x07, 0x05               ; 3:  Light magenta
-    db 0x07, 0x02               ; 4:  Red-magenta
-    db 0x07, 0x00               ; 5:  Bright red
-    db 0x05, 0x02               ; 6:  Dark red-magenta
-    db 0x03, 0x05               ; 7:  Purple
-    db 0x00, 0x07               ; 8:  Back to blue
-    db 0x00, 0x27               ; 9:  Blue + green = cyan-blue
-    db 0x00, 0x57               ; 10: Cyan
-    db 0x00, 0x77               ; 11: Bright cyan
-    db 0x00, 0x55               ; 12: Medium cyan
-    db 0x00, 0x35               ; 13: Dark cyan-blue
-    db 0x00, 0x05               ; 14: Dark blue
-    db 0x00, 0x03               ; 15: Very dark blue
+    db 0x01, 0x02               ; 0:  Very dark purple
+    db 0x02, 0x03               ; 1:  Dark purple
+    db 0x03, 0x04               ; 2:  Dark magenta
+    db 0x04, 0x05               ; 3:  Medium magenta
+    db 0x05, 0x06               ; 4:  Medium-bright magenta
+    db 0x06, 0x07               ; 5:  Bright magenta
+    db 0x07, 0x07               ; 6:  Very bright magenta
+    db 0x07, 0x17               ; 7:  Peak brightness (magenta + green tint)
+    db 0x07, 0x07               ; 8:  Very bright magenta (descending)
+    db 0x06, 0x07               ; 9:  Bright magenta
+    db 0x05, 0x06               ; 10: Medium-bright magenta
+    db 0x04, 0x05               ; 11: Medium magenta
+    db 0x03, 0x04               ; 12: Dark magenta
+    db 0x02, 0x03               ; 13: Dark purple
+    db 0x01, 0x02               ; 14: Very dark purple
+    db 0x02, 0x03               ; 15: Dark purple (smooth loop)
 
 ; ============================================================================
 ; Standard CGA palette for restoring on exit
@@ -1286,9 +1499,20 @@ bmp_header:     times 128 db 0
 ; Row buffer for file reading
 row_buffer:     times 164 db 0
 
-; Bar backup buffers (BAR_HEIGHT rows × 80 bytes per row)
-bar1_backup:    times (BAR_HEIGHT * 80) db 0
-bar2_backup:    times (BAR_HEIGHT * 80) db 0
+; ============================================================================
+; RAM Image Buffer (16,000 bytes = 160×200×4-bit)
+;
+; This is the master copy of the decoded BMP image in LINEAR format.
+; Layout: Row N at offset N * 80 (80 bytes per row, 2 pixels per byte)
+;
+; Used for:
+;   1. Fast RAM→VRAM copy using REP MOVSW during initial display
+;   2. Restoring scanlines after raster bars pass (avoids VRAM reads)
+;
+; NOTE: VRAM uses CGA interlacing, but this buffer is linear for simplicity.
+;       The copy_image_to_vram routine handles the layout conversion.
+; ============================================================================
+image_buffer:   times IMAGE_SIZE db 0
 
 ; ============================================================================
 ; End of Program
