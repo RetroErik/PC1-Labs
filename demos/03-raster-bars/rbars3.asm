@@ -11,7 +11,7 @@
 ;   - Changes PORT_COLOR per scanline during hsync
 ;   - Uses static precomputed pattern table (no per-frame calculation)
 ;   - Scroll offset advances each frame for smooth animation
-;   - C64-style gradient cycling: rotates palette entries for liquid effect
+;   - C64-style gradient cycling: rotates palette entries during vblank for liquid effect
 ;
 ; Controls:
 ;   Any key - Exit to DOS
@@ -40,6 +40,31 @@ PORT_STATUS     equ 0x3DA       ; Status (bit 0=hsync, bit 3=vblank)
 SCREEN_HEIGHT   equ 200         ; Visible scanlines
 SCREEN_SIZE     equ 16384       ; Full video RAM (16KB)
 
+; ============================================================================
+; VBLANK WINDOW - Safe time for palette updates
+; ============================================================================
+;
+; What is VBlank?
+;   VBlank (vertical blanking) is the time between the last visible scanline
+;   and when the electron beam returns to the top of the screen. During this
+;   interval, no pixels are being drawn to the display.
+;
+; Why update palette during VBlank?
+;   - The DAC (Digital-to-Analog Converter) is idle
+;   - No VRAM fetches happening
+;   - Palette register writes won't interfere with active display
+;   - Changes are stable and glitch-free
+;
+; PC1 VBlank timing:
+;   - Display: 200 visible scanlines (0-199)
+;   - VBlank: Remaining scanlines until frame repeats (~56 scanlines)
+;   - Total frame: ~256 scanlines
+;   - Frame rate: ~50Hz (PAL CRT display)
+;
+; Detected via PORT_STATUS bit 3:
+;   - bit 3 = 1: In VBlank (safe for palette updates)
+;   - bit 3 = 0: Active display (avoid palette changes)
+;
 ; ============================================================================
 ; RASTER BAR CONFIGURATION - Adjust these values to customize appearance
 ; ============================================================================
