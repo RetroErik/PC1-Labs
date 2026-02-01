@@ -1,6 +1,6 @@
 ; ============================================================================
-; RBARS4.ASM - Two-Bar Vertical Movement Demo for Olivetti Prodest PC1
-; Two independently moving raster bars with red and green gradients
+; RBARS4.ASM - Two-Bar Sine-Wave Demo for Olivetti Prodest PC1
+; Two independently moving raster bars with sine-wave wobble motion
 ; Written for NASM - NEC V40 (80186 compatible) @ 8 MHz
 ; By Retro Erik - 2026 with help from GitHub Copilot
 ;
@@ -12,7 +12,8 @@
 ;   - Two bars with independent vertical positions
 ;   - Bar 1: Red gradient (palette colors 1-7)
 ;   - Bar 2: Green gradient (palette colors 8-14)
-;   - Bars slide up/down with different speeds
+;   - Sine-wave motion creates classic C64 "wobble" effect
+;   - Bars swap depth order when crossing for 3D "dancing" illusion
 ;
 ; Controls:
 ;   Any key - Exit to DOS
@@ -44,15 +45,38 @@ SCREEN_SIZE     equ 16384       ; Full video RAM (16KB)
 ; ============================================================================
 ; RASTER BAR CONFIGURATION - Adjust these values to customize appearance
 ; ============================================================================
+;
+; Per-bar controls (change without modifying code):
+;   BAR1_SPEED, BAR2_SPEED   - Individual wobble speeds
+;   BAR1_CENTER, BAR2_CENTER - Individual vertical center positions
+;
+; Shared controls (affect both bars equally):
+;   LINES_PER_COLOR          - Bar thickness (1=thin, 3=thick)
+;   SINE_AMPLITUDE           - Wobble distance from center
+;
+; To add more bars: duplicate gradient table, add palette colors, 
+; add new speed/center constants, and add draw_barN section in build_scanline_table
+; ============================================================================
 
 LINES_PER_COLOR equ 2           ; Scanlines per gradient color (1=thin, 3=thick)
 BAR_HEIGHT      equ 14 * LINES_PER_COLOR  ; Total bar height (7 colors * 2 directions)
 
-BAR1_SPEED      equ 2           ; Bar 1 vertical speed (pixels per frame)
-BAR2_SPEED      equ 3           ; Bar 2 vertical speed (pixels per frame)
+; Per-bar speed (higher = faster wobble)
+BAR1_SPEED      equ 2           ; Bar 1 sine index increment per frame
+BAR2_SPEED      equ 3           ; Bar 2 sine index increment per frame
 
-BAR1_START      equ 20          ; Bar 1 starting Y position
-BAR2_START      equ 120         ; Bar 2 starting Y position
+; Per-bar center position (Y coordinate on screen)
+; Set both to same center to make them dance over/under each other!
+BAR1_CENTER     equ 100         ; Bar 1 oscillates around this Y position
+BAR2_CENTER     equ 100         ; Bar 2 oscillates around this Y position (same = crossing!)
+
+; Per-bar starting phase (0-255, controls where in sine wave each bar starts)
+; Different phases + different speeds = bars weaving around each other
+BAR1_PHASE      equ 0           ; Bar 1 starts at sine position 0
+BAR2_PHASE      equ 85          ; Bar 2 starts 1/3 cycle offset (120 degrees)
+
+; Shared amplitude (affects wobble range for both bars)
+SINE_AMPLITUDE  equ 50          ; Maximum distance from center (bigger = more dramatic)
 
 ; ============================================================================
 ; Main Program
@@ -62,30 +86,59 @@ main:
     call set_palette
     call clear_screen
     
-    ; Initialize bar positions
-    mov byte [bar1_y], BAR1_START
-    mov byte [bar2_y], BAR2_START
+    ; Initialize sine wave indices with configurable starting phases
+    mov byte [bar1_sine_idx], BAR1_PHASE
+    mov byte [bar2_sine_idx], BAR2_PHASE
 
 .main_loop:
     call wait_vblank
     
-    ; Update bar 1 position (moving down)
-    mov al, [bar1_y]
+    ; Update bar 1 sine index
+    mov al, [bar1_sine_idx]
     add al, BAR1_SPEED
-    cmp al, SCREEN_HEIGHT
-    jb .bar1_ok
-    xor al, al                  ; Wrap to top
-.bar1_ok:
+    mov [bar1_sine_idx], al         ; Wraps automatically (0-255)
+    
+    ; Calculate bar 1 Y position: center + sine[index]
+    xor ah, ah
+    mov si, ax
+    mov al, [sine_table + si]       ; Get sine value (0-100, centered at 50)
+    add al, BAR1_CENTER
+    sub al, SINE_AMPLITUDE          ; Adjust so sine oscillates around center
     mov [bar1_y], al
     
-    ; Update bar 2 position (moving down, different speed)
-    mov al, [bar2_y]
+    ; Update bar 2 sine index
+    mov al, [bar2_sine_idx]
     add al, BAR2_SPEED
-    cmp al, SCREEN_HEIGHT
-    jb .bar2_ok
-    xor al, al                  ; Wrap to top
-.bar2_ok:
+    mov [bar2_sine_idx], al         ; Wraps automatically (0-255)
+    
+    ; Calculate bar 2 Y position: center + sine[index]
+    xor ah, ah
+    mov si, ax
+    mov al, [sine_table + si]       ; Get sine value
+    add al, BAR2_CENTER
+    sub al, SINE_AMPLITUDE          ; Adjust so sine oscillates around center
     mov [bar2_y], al
+    
+    ; Detect crossing: if bars swapped relative positions, toggle front bar
+    ; This creates the 3D "dancing" effect
+    mov al, [bar1_y]
+    mov bl, [bar2_y]
+    cmp al, bl                      ; Compare current positions
+    mov al, [last_bar1_above]       ; Get last frame's state
+    jae .bar1_above_now
+    ; Bar 1 is below bar 2 now
+    test al, al                     ; Was bar1 above last frame?
+    jz .no_crossing                 ; No, still below - no crossing
+    xor byte [front_bar], 1         ; Yes! They crossed - toggle front bar
+    mov byte [last_bar1_above], 0   ; Update state
+    jmp .no_crossing
+.bar1_above_now:
+    ; Bar 1 is above bar 2 now
+    test al, al                     ; Was bar1 above last frame?
+    jnz .no_crossing                ; Yes, still above - no crossing
+    xor byte [front_bar], 1         ; No! They crossed - toggle front bar
+    mov byte [last_bar1_above], 1   ; Update state
+.no_crossing:
     
     ; Build the scanline color table for this frame
     call build_scanline_table
@@ -112,6 +165,7 @@ main:
 ; build_scanline_table - Pre-compute colors for all 200 scanlines
 ; Creates the color for each scanline based on bar positions
 ; Called during vblank - timing not critical
+; Draws the "back" bar first, then "front" bar on top (determined by front_bar)
 ; ============================================================================
 build_scanline_table:
     push ax
@@ -127,48 +181,71 @@ build_scanline_table:
     xor al, al
     rep stosb
     
-    ; Draw bar 1 (red gradient, palette 1-7)
-    mov al, [bar1_y]
-    xor ah, ah
-    mov di, ax                  ; DI = bar 1 Y position
-    mov si, red_gradient
-    mov cx, BAR_HEIGHT
+    ; Check which bar should be in front
+    cmp byte [front_bar], 0
+    jnz .red_in_front
     
-.draw_bar1:
-    cmp di, SCREEN_HEIGHT
-    jb .bar1_in_range
-    sub di, SCREEN_HEIGHT       ; Wrap around
-.bar1_in_range:
-    mov al, [si]
-    mov [scanline_colors + di], al
-    inc di
-    inc si
-    loop .draw_bar1
+    ; Green in front: draw red first, then green on top
+    call draw_red_bar
+    call draw_green_bar
+    jmp .done_drawing
     
-    ; Draw bar 2 (green gradient, palette 8-14)
-    mov al, [bar2_y]
-    xor ah, ah
-    mov di, ax                  ; DI = bar 2 Y position
-    mov si, green_gradient
-    mov cx, BAR_HEIGHT
+.red_in_front:
+    ; Red in front: draw green first, then red on top
+    call draw_green_bar
+    call draw_red_bar
     
-.draw_bar2:
-    cmp di, SCREEN_HEIGHT
-    jb .bar2_in_range
-    sub di, SCREEN_HEIGHT       ; Wrap around
-.bar2_in_range:
-    mov al, [si]
-    mov [scanline_colors + di], al
-    inc di
-    inc si
-    loop .draw_bar2
-    
+.done_drawing:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+; ----------------------------------------------------------------------------
+; draw_red_bar - Draw bar 1 (red gradient, palette 1-7)
+; ----------------------------------------------------------------------------
+draw_red_bar:
+    mov al, [bar1_y]
+    xor ah, ah
+    mov di, ax                  ; DI = bar 1 Y position
+    mov si, red_gradient
+    mov cx, BAR_HEIGHT
+    
+.draw_loop:
+    cmp di, SCREEN_HEIGHT
+    jb .in_range
+    sub di, SCREEN_HEIGHT       ; Wrap around
+.in_range:
+    mov al, [si]
+    mov [scanline_colors + di], al
+    inc di
+    inc si
+    loop .draw_loop
+    ret
+
+; ----------------------------------------------------------------------------
+; draw_green_bar - Draw bar 2 (green gradient, palette 8-14)
+; ----------------------------------------------------------------------------
+draw_green_bar:
+    mov al, [bar2_y]
+    xor ah, ah
+    mov di, ax                  ; DI = bar 2 Y position
+    mov si, green_gradient
+    mov cx, BAR_HEIGHT
+    
+.draw_loop:
+    cmp di, SCREEN_HEIGHT
+    jb .in_range
+    sub di, SCREEN_HEIGHT       ; Wrap around
+.in_range:
+    mov al, [si]
+    mov [scanline_colors + di], al
+    inc di
+    inc si
+    loop .draw_loop
     ret
 
 ; ============================================================================
@@ -351,11 +428,36 @@ restore_palette:
 ; Data Section
 ; ============================================================================
 
-bar1_y:         db 0            ; Bar 1 vertical position (0-199)
-bar2_y:         db 0            ; Bar 2 vertical position (0-199)
+bar1_y:         db 0            ; Bar 1 current vertical position (0-199)
+bar2_y:         db 0            ; Bar 2 current vertical position (0-199)
+bar1_sine_idx:  db 0            ; Bar 1 sine table index (0-255)
+bar2_sine_idx:  db 0            ; Bar 2 sine table index (0-255)
+front_bar:      db 0            ; Which bar is in front (0=green, 1=red)
+last_bar1_above: db 1           ; Was bar1 above bar2 last frame? (for crossing detection)
 
 ; Pre-computed scanline colors (built each frame during vblank)
 scanline_colors: times SCREEN_HEIGHT db 0
+
+; Sine table (256 entries, values 0-100 representing sine wave)
+; Center value is 50, oscillates between 0 and 100
+; This creates smooth wobble motion for SINE_AMPLITUDE of 50
+sine_table:
+    db 50, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 64, 65, 66, 68
+    db 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84
+    db 84, 85, 86, 87, 87, 88, 89, 89, 90, 90, 91, 91, 92, 92, 93, 93
+    db 94, 94, 94, 95, 95, 95, 96, 96, 96, 96, 97, 97, 97, 97, 97, 97
+    db 97, 97, 97, 97, 97, 97, 97, 97, 96, 96, 96, 96, 95, 95, 95, 94
+    db 94, 94, 93, 93, 92, 92, 91, 91, 90, 90, 89, 89, 88, 87, 87, 86
+    db 85, 84, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71
+    db 70, 69, 68, 66, 65, 64, 63, 62, 61, 59, 58, 57, 56, 55, 53, 52
+    db 50, 49, 48, 47, 45, 44, 43, 42, 41, 39, 38, 37, 36, 35, 34, 32
+    db 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16
+    db 16, 15, 14, 13, 13, 12, 11, 11, 10, 10,  9,  9,  8,  8,  7,  7
+    db  6,  6,  6,  5,  5,  5,  4,  4,  4,  4,  3,  3,  3,  3,  3,  3
+    db  3,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  5,  5,  5,  6
+    db  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 11, 12, 13, 13, 14
+    db 15, 16, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29
+    db 30, 31, 32, 34, 35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 47, 48
 
 ; Red gradient pattern (palette indices 1-7, then 7-1)
 ; Auto-generated based on LINES_PER_COLOR
