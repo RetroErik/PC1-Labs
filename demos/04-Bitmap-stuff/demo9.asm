@@ -10,21 +10,27 @@
 ; Technique:
 ;   Uses CRTC registers R12 (Start Address High) and R13 (Start Address Low)
 ;   to manipulate which part of VRAM is displayed, enabling:
-;   - Screen shake (explosion effect)
-;   - Vertical wipe transitions
-;   - Split screen (status bar) - if HBlank timing works
+;   - Screen shake (earthquake/explosion effect)
+;   - Horizontal wave (wobbly effect)
+;   - Slide-in transition (image slides from left)
+;   - Bounce (horizontal bounce animation)
+;   - Marquee (ping-pong scroll)
 ;
 ; CRTC Start Address Notes:
 ;   R12 = Start Address High byte (bits 15-8 of VRAM offset)
 ;   R13 = Start Address Low byte (bits 7-0 of VRAM offset)
 ;   Standard start = 0x0000 (top of VRAM)
 ;   Row offset = 80 bytes (160 pixels / 2 pixels per byte)
-;   NOTE: CGA interleaving may affect this! Need to test.
+;   LIMITATION: 384-byte gap at 0x1F40 causes artifacts beyond ~5 row offset
 ;
 ; Controls:
 ;   S     - Toggle screen shake on/off
-;   W     - Trigger vertical wipe transition
+;   H     - Toggle horizontal wave on/off
+;   T     - Trigger slide-in transition
+;   B     - Bounce effect
+;   M     - Marquee (ping-pong scroll)
 ;   1-9   - Shake intensity levels
+;   V     - Toggle VSync on/off
 ;   R     - Reset to normal view
 ;   ESC   - Exit to DOS
 ;
@@ -199,8 +205,11 @@ main:
     ; PHASE 2: R12/R13 Effects Loop
     ; ========================================================================
 .main_loop:
-    ; Wait for VBlank (all CRTC changes should happen during VBlank)
+    ; Wait for VBlank (if enabled)
+    cmp byte [vsync_enabled], 0
+    je .skip_vsync
     call wait_vblank
+.skip_vsync:
     
     ; Handle screen shake if enabled
     cmp byte [shake_active], 0
@@ -216,10 +225,28 @@ main:
     mov byte [need_reset], 0
     
 .check_wipe:
-    ; Handle vertical wipe if in progress
-    cmp byte [wipe_active], 0
+    ; Handle horizontal wave if active
+    cmp byte [hwave_active], 0
+    je .check_split
+    call do_horizontal_wave
+    
+.check_split:
+    ; Handle slide-in if active
+    cmp byte [split_active], 0
+    je .check_bounce
+    call do_split_screen
+    
+.check_bounce:
+    ; Handle bounce if active
+    cmp byte [bounce_active], 0
+    je .check_marquee
+    call do_bounce
+    
+.check_marquee:
+    ; Handle marquee if active
+    cmp byte [marquee_active], 0
     je .check_keys
-    call do_vertical_wipe
+    call do_marquee
     
 .check_keys:
     ; Check for keypress
@@ -241,11 +268,35 @@ main:
     cmp al, 's'
     je .toggle_shake
     
-    ; Check for 'W' or 'w' - start wipe
-    cmp al, 'W'
-    je .start_wipe
-    cmp al, 'w'
-    je .start_wipe
+    ; Check for 'V' or 'v' - toggle vsync
+    cmp al, 'V'
+    je .toggle_vsync
+    cmp al, 'v'
+    je .toggle_vsync
+    
+    ; Check for 'H' or 'h' - toggle horizontal wave
+    cmp al, 'H'
+    je .toggle_hwave
+    cmp al, 'h'
+    je .toggle_hwave
+    
+    ; Check for 'T' or 't' - trigger slide-in
+    cmp al, 'T'
+    je .toggle_split
+    cmp al, 't'
+    je .toggle_split
+    
+    ; Check for 'B' or 'b' - trigger bounce
+    cmp al, 'B'
+    je .toggle_bounce
+    cmp al, 'b'
+    je .toggle_bounce
+    
+    ; Check for 'M' or 'm' - marquee
+    cmp al, 'M'
+    je .toggle_marquee
+    cmp al, 'm'
+    je .toggle_marquee
     
     ; Check for 'R' or 'r' - reset
     cmp al, 'R'
@@ -271,14 +322,42 @@ main:
     mov byte [need_reset], 1    ; Flag to reset when shake stops
     jmp .main_loop
     
-.start_wipe:
-    mov byte [wipe_active], 1
-    mov word [wipe_offset], 0
+.toggle_vsync:
+    xor byte [vsync_enabled], 1
+    jmp .main_loop
+    
+.toggle_hwave:
+    xor byte [hwave_active], 1
+    cmp byte [hwave_active], 0
+    jne .main_loop
+    mov byte [need_reset], 1
+    jmp .main_loop
+    
+.toggle_split:
+    xor byte [split_active], 1
+    cmp byte [split_active], 0
+    jne .main_loop
+    mov byte [need_reset], 1
+    jmp .main_loop
+    
+.toggle_bounce:
+    mov byte [bounce_active], 1
+    mov byte [bounce_frame], 0    ; Reset animation
+    jmp .main_loop
+    
+.toggle_marquee:
+    xor byte [marquee_active], 1
+    cmp byte [marquee_active], 0
+    jne .main_loop
+    mov byte [need_reset], 1
     jmp .main_loop
     
 .do_reset:
     mov byte [shake_active], 0
-    mov byte [wipe_active], 0
+    mov byte [hwave_active], 0
+    mov byte [split_active], 0
+    mov byte [bounce_active], 0
+    mov byte [marquee_active], 0
     call reset_crtc_start
     jmp .main_loop
     
@@ -364,83 +443,254 @@ reset_crtc_start:
     ret
 
 ; ----------------------------------------------------------------------------
-; do_screen_shake - Apply random screen shake offset
+; do_screen_shake - Apply oscillating screen shake offset
 ; Creates an earthquake/explosion visual effect
-; Uses lookup table to avoid division issues with certain intensity values
+; Alternates between positive offsets each frame for visible shake
 ; ----------------------------------------------------------------------------
 do_screen_shake:
     push ax
     push bx
-    push cx
     
-    ; Get pseudo-random value using simple LFSR
-    mov ax, [random_seed]
-    mov bx, ax
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    xor ax, bx
-    shl ax, 1
-    xor ax, bx
-    mov [random_seed], ax
+    ; Simple frame-based oscillation: toggle between two offsets
+    ; This guarantees visible movement every frame
+    xor byte [shake_toggle], 1
     
-    ; Use intensity as a mask: AND with (2^n - 1) based on intensity
-    ; This avoids division which was causing issues with certain values
-    mov bl, [shake_intensity]
-    xor bh, bh
-    mov si, bx
-    mov bl, [intensity_mask + si]   ; Get mask for this intensity
-    and al, bl                      ; AL = 0 to mask value
-    
-    ; Convert to row offset (multiply by 80 bytes per row)
+    ; Get intensity (1-9) and convert to row offset
+    mov al, [shake_intensity]
     xor ah, ah
+    
+    ; If toggle is 0, use positive offset; if 1, use 0
+    cmp byte [shake_toggle], 0
+    je .use_offset
+    xor ax, ax              ; Offset = 0 on alternate frames
+    jmp .apply
+    
+.use_offset:
+    ; Multiply intensity by 80 to get byte offset (1-9 rows)
     mov bx, BYTES_PER_ROW
-    mul bx                  ; AX = row offset in bytes
+    mul bx                  ; AX = intensity * 80
     
-    ; Clamp to safe range (stay within first bank, avoid 384-byte gap)
-    ; Max safe offset = ~1600 bytes = 20 rows
-    cmp ax, 1600
-    jbe .in_range
-    mov ax, 1600
-.in_range:
-    
+.apply:
     ; Set the CRTC start address
     call set_crtc_start
     
-    pop cx
     pop bx
     pop ax
     ret
 
+shake_toggle: db 0
+
 ; ----------------------------------------------------------------------------
-; do_vertical_wipe - Gradually scroll down to reveal "new" screen
-; Simulates a curtain-opening or scene transition
+; do_horizontal_wave - Horizontal wobble effect (SMOOTH version)
+; Uses dedicated 64-entry wave table for smooth, slower motion
+; Range: 0-8 bytes = 0-16 pixels horizontal shift
 ; ----------------------------------------------------------------------------
-do_vertical_wipe:
+do_horizontal_wave:
     push ax
-    push bx
+    push si
     
-    ; Increment wipe offset
-    mov ax, [wipe_offset]
-    add ax, BYTES_PER_ROW   ; Move down one row per frame
+    ; Increment wave index (wraps at 64)
+    inc byte [hwave_index]
+    mov al, [hwave_index]
+    and al, 0x3F            ; Keep in 0-63 range
+    mov [hwave_index], al
     
-    ; Check if wipe is complete
-    ; Due to 384-byte gap, we can only safely scroll ~20 rows (1600 bytes)
-    ; This creates a partial wipe effect but avoids garbage
-    cmp ax, 20 * BYTES_PER_ROW
-    jb .wipe_continue
+    ; Look up smooth wave value (0-8, 1-byte steps guaranteed)
+    xor ah, ah
+    mov si, ax
+    mov al, [hwave_table + si]
     
-    ; Wipe complete - reset
-    xor ax, ax
-    mov byte [wipe_active], 0
-    
-.wipe_continue:
-    mov [wipe_offset], ax
+    ; AX = byte offset directly (0-8 bytes = 0-16 pixels)
+    xor ah, ah
     call set_crtc_start
     
-    pop bx
+    pop si
     pop ax
     ret
+
+hwave_index: db 0
+
+; Smooth horizontal wave table (64 entries)
+; Triangle wave: 0→8→0 with smooth wrap-around
+; Each value appears 3-4 times for slower motion
+hwave_table:
+    db 0, 0, 0, 0, 1, 1, 1, 1     ; 0-7:   0→1
+    db 2, 2, 2, 2, 3, 3, 3, 3     ; 8-15:  2→3
+    db 4, 4, 4, 4, 5, 5, 5, 5     ; 16-23: 4→5
+    db 6, 6, 6, 6, 7, 7, 8, 8     ; 24-31: 6→7→8
+    db 8, 8, 7, 7, 6, 6, 6, 6     ; 32-39: 8→7→6
+    db 5, 5, 5, 5, 4, 4, 4, 4     ; 40-47: 5→4
+    db 3, 3, 3, 3, 2, 2, 2, 2     ; 48-55: 3→2
+    db 1, 1, 1, 1, 0, 0, 0, 0     ; 56-63: 1→0 (wraps smoothly)
+
+; ----------------------------------------------------------------------------
+; do_bounce - Bouncing ball physics effect
+; Image "drops" and bounces with decreasing height
+; Uses a pre-calculated bounce table for smooth motion
+; ----------------------------------------------------------------------------
+do_bounce:
+    push ax
+    push si
+    
+    ; Get current frame in bounce animation
+    mov al, [bounce_frame]
+    xor ah, ah
+    mov si, ax
+    
+    ; Look up position from bounce table
+    mov al, [bounce_table + si]
+    
+    ; Check for end of animation (255 = done)
+    cmp al, 255
+    jne .not_done
+    
+    ; Animation complete
+    mov byte [bounce_active], 0
+    mov byte [bounce_frame], 0
+    mov byte [need_reset], 1
+    xor ax, ax
+    jmp .apply_bounce
+    
+.not_done:
+    ; Advance to next frame
+    inc byte [bounce_frame]
+    xor ah, ah
+    
+.apply_bounce:
+    ; Set CRTC start address
+    call set_crtc_start
+    
+    pop si
+    pop ax
+    ret
+
+; Bounce animation table - simulates drop and 3 bounces
+; Values are byte offsets (0-40), 255 = end
+; Each value repeated 3x for slower, smoother animation
+bounce_table:
+    ; Drop (accelerating): 0 to 40
+    db 0, 0, 0, 1, 1, 1, 2, 2, 2, 4, 4, 4
+    db 6, 6, 6, 9, 9, 9, 12, 12, 12, 16, 16, 16
+    db 20, 20, 20, 25, 25, 25, 30, 30, 30, 36, 36, 36
+    db 40, 40, 40
+    ; Bounce 1 up: 40 to 20
+    db 36, 36, 36, 32, 32, 32, 28, 28, 28
+    db 25, 25, 25, 22, 22, 22, 20, 20, 20
+    ; Bounce 1 down: 20 to 40
+    db 22, 22, 22, 25, 25, 25, 28, 28, 28
+    db 32, 32, 32, 36, 36, 36, 40, 40, 40
+    ; Bounce 2 up: 40 to 30
+    db 37, 37, 37, 34, 34, 34, 32, 32, 32, 30, 30, 30
+    ; Bounce 2 down: 30 to 40
+    db 32, 32, 32, 34, 34, 34, 37, 37, 37, 40, 40, 40
+    ; Bounce 3 up: 40 to 36
+    db 38, 38, 38, 36, 36, 36
+    ; Bounce 3 down: 36 to 40
+    db 38, 38, 38, 40, 40, 40
+    ; Settle
+    db 40, 40, 40, 40, 40, 40, 40, 40, 40
+    ; Return to center (slower)
+    db 35, 35, 35, 30, 30, 30, 25, 25, 25
+    db 20, 20, 20, 15, 15, 15, 10, 10, 10
+    db 5, 5, 5, 0, 0, 0
+    ; End marker
+    db 255
+
+bounce_frame: db 0
+
+; Legacy variables (kept for compatibility)
+bounce_pos: db 0
+bounce_vel: db 0
+
+; ----------------------------------------------------------------------------
+; do_marquee - Continuous scroll left and right
+; Ping-pong scroll effect, avoids wrap-around glitches from CGA interleaving
+; Scrolls 0 to 40 bytes (80 pixels) and back
+; ----------------------------------------------------------------------------
+do_marquee:
+    push ax
+    
+    ; Check direction and update position
+    cmp byte [marquee_dir], 0
+    jne .go_right
+    
+    ; Going left (increasing offset)
+    inc byte [marquee_pos]
+    cmp byte [marquee_pos], 40
+    jb .apply_marquee
+    mov byte [marquee_dir], 1   ; Reverse direction
+    jmp .apply_marquee
+    
+.go_right:
+    ; Going right (decreasing offset)
+    dec byte [marquee_pos]
+    cmp byte [marquee_pos], 0
+    ja .apply_marquee
+    mov byte [marquee_dir], 0   ; Reverse direction
+    
+.apply_marquee:
+    mov al, [marquee_pos]
+    xor ah, ah
+    call set_crtc_start
+    
+    pop ax
+    ret
+
+marquee_pos: db 0
+marquee_dir: db 0               ; 0 = left, 1 = right
+
+; ----------------------------------------------------------------------------
+; do_split_screen - Slide-in effect
+; Smoothly slides image from left (offset 40) back to center (offset 0)
+; Press T to trigger slide animation
+; ----------------------------------------------------------------------------
+do_split_screen:
+    push ax
+    
+    ; If slide not running, start it
+    cmp byte [slide_pos], 0
+    jne .continue_slide
+    mov byte [slide_pos], 40    ; Start at 40 bytes (80 pixels) left
+    
+.continue_slide:
+    ; Set current slide position
+    mov al, [slide_pos]
+    xor ah, ah
+    call set_crtc_start
+    
+    ; Decrement position (slide back to center)
+    dec byte [slide_pos]
+    
+    ; If reached 0, disable effect
+    cmp byte [slide_pos], 0
+    jne .done
+    mov byte [split_active], 0
+    mov byte [need_reset], 1
+    
+.done:
+    pop ax
+    ret
+
+slide_pos: db 0
+split_toggle: db 0
+; Sine table (256 entries, 0-100 range, centered at 50)
+sine_table:
+    db 50, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 64, 65, 66, 68
+    db 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84
+    db 84, 85, 86, 87, 87, 88, 89, 89, 90, 90, 91, 91, 92, 92, 93, 93
+    db 94, 94, 94, 95, 95, 95, 96, 96, 96, 96, 97, 97, 97, 97, 97, 97
+    db 97, 97, 97, 97, 97, 97, 97, 97, 96, 96, 96, 96, 95, 95, 95, 94
+    db 94, 94, 93, 93, 92, 92, 91, 91, 90, 90, 89, 89, 88, 87, 87, 86
+    db 85, 84, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71
+    db 70, 69, 68, 66, 65, 64, 63, 62, 61, 59, 58, 57, 56, 55, 53, 52
+    db 50, 49, 48, 47, 45, 44, 43, 42, 41, 39, 38, 37, 36, 35, 34, 32
+    db 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16
+    db 16, 15, 14, 13, 13, 12, 11, 11, 10, 10,  9,  9,  8,  8,  7,  7
+    db  6,  6,  6,  5,  5,  5,  4,  4,  4,  4,  3,  3,  3,  3,  3,  3
+    db  3,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  5,  5,  5,  6
+    db  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 11, 12, 13, 13, 14
+    db 15, 16, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29
+    db 30, 31, 32, 34, 35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 47, 48
 
 ; ============================================================================
 ; Video Utility Routines
@@ -776,9 +1026,13 @@ msg_info    db 'DEMO9 - R12/R13 Effects Demo for Olivetti Prodest PC1', 0x0D, 0x
             db 'Usage: DEMO9 image.bmp', 0x0D, 0x0A
             db 0x0D, 0x0A
             db 'Controls:', 0x0D, 0x0A
-            db '  S     - Toggle screen shake', 0x0D, 0x0A
-            db '  W     - Vertical wipe transition', 0x0D, 0x0A
+            db '  S     - Screen shake (earthquake)', 0x0D, 0x0A
+            db '  H     - Horizontal wave (wobbly)', 0x0D, 0x0A
+            db '  T     - Slide-in transition', 0x0D, 0x0A
+            db '  B     - Bounce effect', 0x0D, 0x0A
+            db '  M     - Marquee (ping-pong scroll)', 0x0D, 0x0A
             db '  1-9   - Shake intensity', 0x0D, 0x0A
+            db '  V     - Toggle VSync', 0x0D, 0x0A
             db '  R     - Reset to normal', 0x0D, 0x0A
             db '  ESC   - Exit to DOS', 0x0D, 0x0A, '$'
 
@@ -800,26 +1054,11 @@ border_ctr      db 0
 shake_active    db 0            ; 1 = shake enabled
 shake_intensity db 3            ; Shake intensity (1-9 rows)
 need_reset      db 0            ; Flag to reset CRTC after shake stops
-wipe_active     db 0            ; 1 = wipe in progress
-wipe_offset     dw 0            ; Current wipe offset
-
-; Random number generator seed
-random_seed     dw 0x1234       ; Initial seed
-
-; Intensity mask table - maps intensity 1-9 to bit masks
-; Using masks avoids division which caused issues with certain values
-; Mask values give range 0..N rows of shake
-intensity_mask:
-    db 0        ; 0: unused
-    db 0x01     ; 1: 0-1 rows
-    db 0x01     ; 2: 0-1 rows
-    db 0x03     ; 3: 0-3 rows
-    db 0x03     ; 4: 0-3 rows
-    db 0x07     ; 5: 0-7 rows
-    db 0x07     ; 6: 0-7 rows
-    db 0x0F     ; 7: 0-15 rows
-    db 0x0F     ; 8: 0-15 rows
-    db 0x1F     ; 9: 0-31 rows (but clamped to 20 for safety)
+hwave_active    db 0            ; 1 = horizontal wave active
+split_active    db 0            ; 1 = slide-in transition active
+bounce_active   db 0            ; 1 = bounce effect active
+marquee_active  db 0            ; 1 = marquee scroll active
+vsync_enabled   db 1            ; 1 = vsync on (default), 0 = free running
 
 ; Standard CGA palette
 cga_colors:
