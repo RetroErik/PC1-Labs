@@ -2,7 +2,6 @@
 ; For Olivetti PC1 with NEC V40 CPU and V6355D video controller
 ; Assemble with NASM: nasm -f bin BBalls6.asm -o BBalls6.com
 ; By Retro Erik - 2026 using VS Code with Co-Pilot
-; Version 0.7 - Spinning line animation (8 frames) + rainbow colors
 ;
 ; FEATURES:
 ; ---------
@@ -10,7 +9,7 @@
 ; - True raster-synchronized multiplexing: 2 balls from 1 sprite!
 ; - Spinning line animation (8 frames, line rotates 45° per step)
 ; - Random rainbow color on every bounce (never repeats)
-; - Both balls use XOR transparent mode (background shows through)
+; - Top ball: XOR transparent mode, Bottom ball: solid mode
 ; - Mode/color/shape changes mid-frame via registers 64h, 68h, sprite RAM
 ;
 ; HOW RASTER-SYNC MULTIPLEXING WORKS:
@@ -21,10 +20,21 @@
 ;
 ; Algorithm:
 ;   1. Wait for vsync (beam returns to top of screen)
-;   2. Set Ball 1 color and position sprite (solid mode)
+;   2. Set Ball 1 color and position sprite (XOR transparent mode)
 ;   3. Wait until beam passes that ball (Y + 16)
-;   4. Set Ball 2 color and reposition sprite (XOR transparent mode)
+;   4. Set Ball 2 color and reposition sprite (solid mode)
 ;   5. Result: Both balls visible in ONE frame = no flicker!
+;
+; PROGRESSION IN THIS SERIES:
+; ---------------------------
+; BBalls4: Basic raster-synchronized multiplexing - 2 balls, white
+; BBalls5: + Rainbow colors + mode switching (solid vs XOR)
+; BBalls6 (this file): + Animated sprite shapes
+;   - Same core raster-sync timing as BBalls4/5
+;   - Adds sprite animation: 8-frame spinning line (rotates 45° per frame)
+;   - Top ball XOR transparent, bottom ball solid
+;   - Shape changes mid-frame by uploading new sprite data to V6335D RAM
+;   - Ultimate visual showcase of the raster-sync multiplexing technique
 ;
 ; VERTICAL ZONES (screen split in half):
 ;   Ball 1: Y =   8 -  84  (top half, sprite bottom at 100)
@@ -79,8 +89,8 @@ continue_loop:
     ; ========= TRUE RASTER-SYNC MULTIPLEXING =========
     ; Beam is at TOP of screen after vsync
     
-    ; --- Ball 1: Draw immediately (top half) - SOLID MODE ---
-    mov al, 06h                 ; AND+XOR mode (line always on top)
+    ; --- Ball 1: Draw immediately (top half) - TRANSPARENT XOR ---
+    mov al, 04h                 ; XOR only mode (transparent)
     call set_sprite_mode
     mov al, [color_idx1]        ; Get current color directly
     call set_sprite_color
@@ -99,8 +109,8 @@ continue_loop:
     nop
     loop .wait_for_bottom
     
-    ; --- Ball 2: Beam has passed top half, now draw bottom - TRANSPARENT XOR ---
-    mov al, 04h                 ; XOR only mode (transparent)
+    ; --- Ball 2: Beam has passed top half, now draw bottom - SOLID ---
+    mov al, 06h                 ; AND + XOR mode (solid)
     call set_sprite_mode
     mov al, [color_idx2]        ; Get current color directly
     call set_sprite_color
@@ -489,15 +499,54 @@ rainbow_colors:
 
 ; Text strings ($ terminated for DOS)
 info_text:
-    db 'V6355D Sprite Multiplexing + Animation Demo', 13, 10
-    db '--------------------------------------------', 13, 10
-    db 'Using the hardware mouse cursor sprite!', 13, 10
-    db 'Two balls from ONE 16x16 sprite.', 13, 10
-    db 13, 10
-    db 'Spinning line animation (8 frames)', 13, 10
-    db 'Random rainbow colors on bounce!', 13, 10
+    db 1Bh, '[2J', 1Bh, '[H'        ; Clear screen and home cursor
+    db 1Bh, '[1;36m'                ; Bright Cyan
+    db 'BBalls6: Raster-Sync + Animation', 13, 10
+    db 1Bh, '[1;33m'                ; Bright Yellow
+    db '==================================', 13, 10
+    db 1Bh, '[0m', 13, 10            ; Reset colors
+    db 1Bh, '[1;32m'                ; Bright Green
+    db 'Ultimate visual showcase of the technique:', 13, 10
+    
+    ; 16 horizontal color bars - 8 normal colors on top row, 8 bright colors on bottom row
+    db 1Bh, '[4;52H'                ; Position first row
+    db 1Bh, '[40m   ', 1Bh, '[0m'  ; Black
+    db 1Bh, '[44m   ', 1Bh, '[0m'  ; Blue
+    db 1Bh, '[42m   ', 1Bh, '[0m'  ; Green
+    db 1Bh, '[46m   ', 1Bh, '[0m'  ; Cyan
+    db 1Bh, '[41m   ', 1Bh, '[0m'  ; Red
+    db 1Bh, '[45m   ', 1Bh, '[0m'  ; Magenta
+    db 1Bh, '[43m   ', 1Bh, '[0m'  ; Brown
+    db 1Bh, '[47m   ', 1Bh, '[0m'  ; Light Gray
+    db 1Bh, '[5;52H'                ; Position second row
+    db 1Bh, '[1;30m', 219,219,219, 1Bh, '[0m'  ; Dark Gray
+    db 1Bh, '[1;34m', 219,219,219, 1Bh, '[0m'  ; Light Blue
+    db 1Bh, '[1;32m', 219,219,219, 1Bh, '[0m'  ; Light Green
+    db 1Bh, '[1;36m', 219,219,219, 1Bh, '[0m'  ; Light Cyan
+    db 1Bh, '[1;31m', 219,219,219, 1Bh, '[0m'  ; Light Red
+    db 1Bh, '[1;35m', 219,219,219, 1Bh, '[0m'  ; Light Magenta
+    db 1Bh, '[1;33m', 219,219,219, 1Bh, '[0m'  ; Yellow
+    db 1Bh, '[1;37m', 219,219,219, 1Bh, '[0m'  ; White
+    
+    db 1Bh, '[5;1H'                 ; Same line as bright color bars
+    db 1Bh, '[1;37m'                ; Bright White
+    db '- 8-frame spinning line animation', 13, 10
+    db 1Bh, '[0m', 1Bh, '[37m'      ; Reset then Grey
+    db '- Random rainbow colors on bounce', 13, 10
+    db 1Bh, '[1;34m'                ; Bright Blue
+    db '- Top: XOR transparent, Bottom: Solid', 13, 10
+    db 1Bh, '[0m', 13, 10            ; Reset
+    db 1Bh, '[1;37m'                ; Bright White
+    db 'Same core raster-sync multiplexing engine.', 13, 10
+    db 1Bh, '[0m', 13, 10            ; Reset
+    db 1Bh, '[1;33m'                ; Bright Yellow
+    db 'Powered by ', 1Bh, '[1;36m', 'V6355D', 13, 10
+    db 1Bh, '[0m'                   ; Reset
+    db 'Created by ', 1Bh, '[1;35m', 'Retro ', 1Bh, '[1;36m', 'Erik', 1Bh, '[0m', ', 2026', 13, 10
+    db 1Bh, '[1;33m', 'Press ESC to exit', 1Bh, '[0m', 13, 10, '$'
     db 13, 10
     db 'Created by Retro Erik, 2026', 13, 10
+    db 'Press ESC to exit', 13, 10, '$'
     db 'Press ESC to exit', 13, 10, '$'
 
 ; Animation frame table (8 frames)

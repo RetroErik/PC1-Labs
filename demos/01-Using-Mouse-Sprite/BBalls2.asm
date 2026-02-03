@@ -1,25 +1,31 @@
-; PC1 Sprite Multiplexing Demo - 3 Bouncing Balls
+; PC1 Sprite Multiplexing Demo - 3 Bouncing Balls (DIRECT HARDWARE, CRUDE ATTEMPT)
 ; For Olivetti PC1 with NEC V40 CPU
-; Assemble with NASM: nasm -f bin BBalls3.asm -o BBalls3.com
+; Assemble with NASM: nasm -f bin BBalls2.asm -o BBalls2.com
 ; By Retro Erik - 2026 using VS Code with Co-Pilot
-; Version 0.4 - Vsync-synchronized, one ball per frame cycling
+; Version 0.3 - Direct hardware access (no mouse driver needed)
 ;
-; COORDINATE SYSTEM:
-; -----------------
-; Virtual Screen: 640x200 pixels (standard CGA resolution)
-; V6335D Hardware: Uses different coordinate space
+; PURPOSE: Step 2 in the progression - replaces mouse driver with direct V6335D
+; hardware access. Still uses CRUDE multiplexing (rapid repositioning with delays).
 ;
-; Transformation (in position_sprite):
-;   Hardware X = (Virtual X / 2) + 15
-;   Hardware Y = Virtual Y + 8
+; IMPROVEMENTS OVER BBalls1:
+; - Direct V6335D hardware control (eliminates mouse driver dependency)
+; - Better performance potential (fewer INT calls)
+; - Virtual-to-hardware coordinate transformation
 ;
-; Sprite origin is TOP-LEFT corner (not center like mouse pointer)
+; SAME PROBLEMS AS BBalls1:
+; - Uses rapid repositioning with delays (NOT raster-synchronized)
+; - Will exhibit flicker due to unsynced sprite redraws
+; - Code is POORLY STRUCTURED with 3 identical update routines
+; - Significant code duplication
+; - Timing is crude and imprecise
 ;
-; Virtual Bounds (for 16x16 sprite to stay on screen):
-;   Left:   X >= 0
-;   Right:  X <= 608  (accounts for X/2 transform + 16px width)
-;   Top:    Y >= 8    (accounts for +8 offset)
-;   Bottom: Y <= 184  (200 - 16px height)
+; NOTE: Coordinate system details documented in BBall.asm
+;
+; NEXT STEPS (Learning Progression):
+; - BBalls1.asm: 3 balls, mouse driver (crude multiplexing attempt)
+; - BBalls2.asm: 3 balls, direct hardware (faster but still flickers) - YOU ARE HERE
+; - BBalls3.asm: 3 balls cycling, vsync sync (time-division, NOT multiplexing)
+; - BBalls4+: True raster-sync multiplexing (THIS is the solution!)
 
 CPU 186
 
@@ -67,44 +73,38 @@ continue_loop:
     call update_ball2
     call update_ball3
 
-    ; Wait for vertical retrace to start
-    call wait_vsync
+    ; Sprite multiplexing: show all 3 balls each frame
+    ; Rapidly reposition sprite to create persistence-of-vision effect
     
-    ; Sprite multiplexing: one ball per vsync frame
-    ; PAL = 50Hz, so each ball visible at 50Hz/3 = ~16.7Hz per ball
-    mov al, [current_ball]
-    cmp al, 0
-    je .draw_ball1
-    cmp al, 1
-    je .draw_ball2
-    jmp .draw_ball3
-
-.draw_ball1:
+    ; Draw ball 1
     mov ax, [ball1_x]
     mov bx, [ball1_y]
     call position_sprite
-    jmp .done_draw
+    call short_delay
     
-.draw_ball2:
+    ; Draw ball 2
     mov ax, [ball2_x]
     mov bx, [ball2_y]
     call position_sprite
-    jmp .done_draw
+    call short_delay
     
-.draw_ball3:
+    ; Draw ball 3
     mov ax, [ball3_x]
     mov bx, [ball3_y]
     call position_sprite
 
-.done_draw:
-    ; Cycle to next ball (0->1->2->0)
-    inc byte [current_ball]
-    cmp byte [current_ball], 3
-    jb .ball_ok
-    mov byte [current_ball], 0
-.ball_ok:
+    ; Wait for next BIOS timer tick (~55ms, ~18Hz)
+    mov ah, 00h
+    int 1Ah
+    mov [timer_target], dx
+    inc word [timer_target]
 
-    ; No timer wait needed - vsync provides ~60Hz timing
+wait_tick:
+    mov ah, 00h
+    int 1Ah
+    cmp dx, [timer_target]
+    jne wait_tick
+
     jmp main_loop
 
 check_key:
@@ -246,29 +246,6 @@ short_delay:
 .delay_loop:
     loop .delay_loop
     pop cx
-    ret
-
-; Wait for vertical sync (retrace)
-; Uses CGA status port 3DAh, bit 3 = vertical retrace
-wait_vsync:
-    push ax
-    push dx
-    mov dx, 3DAh            ; CGA status port
-    
-    ; First wait for retrace to end (if already in retrace)
-.wait_no_vsync:
-    in al, dx
-    test al, 08h            ; Bit 3 = vertical retrace
-    jnz .wait_no_vsync
-    
-    ; Now wait for retrace to start
-.wait_vsync_start:
-    in al, dx
-    test al, 08h
-    jz .wait_vsync_start
-    
-    pop dx
-    pop ax
     ret
 
 ; ===== Ball Update Routines =====

@@ -1,25 +1,41 @@
-; PC1 Sprite Multiplexing Demo - 3 Bouncing Balls
+; PC1 Sprite Cycling Demo - 3 Bouncing Balls (NOT TRUE MULTIPLEXING)
 ; For Olivetti PC1 with NEC V40 CPU
-; Assemble with NASM: nasm -f bin BBalls2.asm -o BBalls2.com
+; Assemble with NASM: nasm -f bin BBalls3.asm -o BBalls3.com
 ; By Retro Erik - 2026 using VS Code with Co-Pilot
-; Version 0.3 - Direct hardware access (no mouse driver needed)
+; Version 0.4 - Vsync-synchronized, one ball per frame cycling
 ;
-; COORDINATE SYSTEM:
-; -----------------
-; Virtual Screen: 640x200 pixels (standard CGA resolution)
-; V6335D Hardware: Uses different coordinate space
+; PURPOSE: Step 3 in the progression - adds vsync synchronization but
+; fundamentally changes the approach. This is TIME-DIVISION, NOT multiplexing!
 ;
-; Transformation (in position_sprite):
-;   Hardware X = (Virtual X / 2) + 15
-;   Hardware Y = Virtual Y + 8
+; KEY DIFFERENCE FROM BBalls1/2:
+; - Adds vsync synchronization (waits for vertical retrace)
+; - Eliminates crude delay loops
+; - BUT: Only ONE ball visible per frame, cycles between them
 ;
-; Sprite origin is TOP-LEFT corner (not center like mouse pointer)
+; CRITICAL ISSUE - THIS IS NOT MULTIPLEXING:
+; - True multiplexing = Multiple sprites visible in same frame
+; - This = Time-division = Show ball 1, then ball 2, then ball 3
+; - Results in FLICKER because each ball visible at only 50Hz/3 ≈ 16.7Hz
+; - This is WORSE than BBalls1/2 for visual quality
+; - This is a DEAD-END approach!
 ;
-; Virtual Bounds (for 16x16 sprite to stay on screen):
-;   Left:   X >= 0
-;   Right:  X <= 608  (accounts for X/2 transform + 16px width)
-;   Top:    Y >= 8    (accounts for +8 offset)
-;   Bottom: Y <= 184  (200 - 16px height)
+; WHY IT FAILS:
+; - Each ball only refreshed once every 3 frames (too slow)
+; - Visible flicker as observer's eyes can detect ~16.7Hz
+; - Synchronization doesn't help if you're not actually multiplexing
+;
+; WHAT WORKS:
+; - TRUE multiplexing = reposition sprite multiple times per frame
+; - RASTER synchronization = wait for beam to pass position 1, then reposition to position 2
+; - Both balls visible every frame = no flicker
+;
+; NOTE: Coordinate system details documented in BBall.asm
+;
+; NEXT STEPS (Learning Progression):
+; - BBalls1.asm: 3 balls, mouse driver (crude multiplexing attempt)
+; - BBalls2.asm: 3 balls, direct hardware (faster but still flickers)
+; - BBalls3.asm: 3 balls cycling, vsync sync (time-division, NOT multiplexing) - YOU ARE HERE
+; - BBalls4+: True raster-sync multiplexing (THIS is the solution!)
 
 CPU 186
 
@@ -67,38 +83,44 @@ continue_loop:
     call update_ball2
     call update_ball3
 
-    ; Sprite multiplexing: show all 3 balls each frame
-    ; Rapidly reposition sprite to create persistence-of-vision effect
+    ; Wait for vertical retrace to start
+    call wait_vsync
     
-    ; Draw ball 1
+    ; Sprite multiplexing: one ball per vsync frame
+    ; PAL = 50Hz, so each ball visible at 50Hz/3 = ~16.7Hz per ball
+    mov al, [current_ball]
+    cmp al, 0
+    je .draw_ball1
+    cmp al, 1
+    je .draw_ball2
+    jmp .draw_ball3
+
+.draw_ball1:
     mov ax, [ball1_x]
     mov bx, [ball1_y]
     call position_sprite
-    call short_delay
+    jmp .done_draw
     
-    ; Draw ball 2
+.draw_ball2:
     mov ax, [ball2_x]
     mov bx, [ball2_y]
     call position_sprite
-    call short_delay
+    jmp .done_draw
     
-    ; Draw ball 3
+.draw_ball3:
     mov ax, [ball3_x]
     mov bx, [ball3_y]
     call position_sprite
 
-    ; Wait for next BIOS timer tick (~55ms, ~18Hz)
-    mov ah, 00h
-    int 1Ah
-    mov [timer_target], dx
-    inc word [timer_target]
+.done_draw:
+    ; Cycle to next ball (0->1->2->0)
+    inc byte [current_ball]
+    cmp byte [current_ball], 3
+    jb .ball_ok
+    mov byte [current_ball], 0
+.ball_ok:
 
-wait_tick:
-    mov ah, 00h
-    int 1Ah
-    cmp dx, [timer_target]
-    jne wait_tick
-
+    ; No timer wait needed - vsync provides ~60Hz timing
     jmp main_loop
 
 check_key:
@@ -240,6 +262,29 @@ short_delay:
 .delay_loop:
     loop .delay_loop
     pop cx
+    ret
+
+; Wait for vertical sync (retrace)
+; Uses CGA status port 3DAh, bit 3 = vertical retrace
+wait_vsync:
+    push ax
+    push dx
+    mov dx, 3DAh            ; CGA status port
+    
+    ; First wait for retrace to end (if already in retrace)
+.wait_no_vsync:
+    in al, dx
+    test al, 08h            ; Bit 3 = vertical retrace
+    jnz .wait_no_vsync
+    
+    ; Now wait for retrace to start
+.wait_vsync_start:
+    in al, dx
+    test al, 08h
+    jz .wait_vsync_start
+    
+    pop dx
+    pop ax
     ret
 
 ; ===== Ball Update Routines =====

@@ -1,7 +1,35 @@
-; PC1 Sprite Multiplexing Demo - 3 Bouncing Balls
+; PC1 Sprite Multiplexing Demo - 3 Bouncing Balls (CRUDE MULTIPLEXING ATTEMPT)
 ; For Olivetti PC1 with NEC V40 CPU
 ; Assemble with NASM: nasm -f bin BBalls.asm -o BBalls.com
-; By Retro Erik - 2026 using VS Code with Co-Pilot - Version 0.2
+; By Retro Erik - 2026 using VS Code with Co-Pilot
+;
+; PURPOSE: Demonstrates a NAIVE multiplexing approach to display 3 balls
+; using a single hardware sprite. This is an EXPERIMENTAL/LEARNING version.
+;
+; FEATURES:
+; - 3 independently bouncing balls
+; - Rapid repositioning to simulate multiple sprites (crude multiplexing)
+; - Uses INT 33h mouse driver (requires mouse driver installed)
+;
+; LIMITATIONS & ISSUES:
+; - Uses rapid repositioning with delays (NOT raster-synchronized)
+; - Will exhibit flicker due to unsynced sprite redraws
+; - Code is POORLY STRUCTURED: uses 3 identical update_ball routines
+;   (update_ball1, update_ball2, update_ball3) instead of generic loop
+; - Significant code duplication (data and logic repeated 3 times)
+; - Waits for BIOS timer tick (~18Hz) - slow and imprecise timing
+;
+; PROPER MULTIPLEXING (raster-synchronized, flicker-free) requires:
+; - Direct hardware access (no mouse driver)
+; - Synchronization with raster beam position
+; - Careful timing to reposition sprite between balls
+; - See BBalls4+ for correct implementation
+;
+; NEXT STEPS (Learning Progression):
+; - BBalls1.asm: 3 balls, mouse driver (crude multiplexing attempt) - YOU ARE HERE
+; - BBalls2.asm: 3 balls, direct hardware (faster but still flickers)
+; - BBalls3.asm: 3 balls cycling, vsync sync (time-division, NOT multiplexing)
+; - BBalls4+: True raster-sync multiplexing (THIS is the solution!)
 
 
 CPU 186

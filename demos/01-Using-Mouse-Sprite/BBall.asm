@@ -1,7 +1,51 @@
-; Bouncing Ball Demo using PC1 Hardware Sprite
+; PC1 Hardware Sprite Demo - Single Bouncing Ball
 ; For Olivetti PC1 with NEC V40 CPU
 ; Assemble with NASM: nasm -f bin BB.asm -o BB.com
-; Created by RetroErik - 2026 V. 0.1
+; Created by RetroErik - 2026
+;
+; PURPOSE: Demonstrates basic hardware sprite usage via INT 33h mouse driver.
+; This is the simplest example - one ball, one sprite, no multiplexing tricks.
+;
+; FEATURES:
+; - Single bouncing ball using V6335D hardware sprite
+; - Clean, simple code structure with no duplication
+; - Uses INT 33h mouse driver for sprite control
+; - BIOS timer-based animation (~18Hz)
+;
+; WHAT IT SHOWS:
+; - How to initialize and use the mouse driver sprite
+; - Basic physics: position, velocity, boundary collision
+; - Direct sprite positioning via INT 33h function 04h
+; - A good starting point before moving to multiplexing techniques
+;
+; LIMITATIONS:
+; - Only displays ONE sprite at a time
+; - Requires mouse driver to be installed
+; - No multiplexing (see BBalls1+ for multiple balls)
+; - BIOS timer is slow (~55ms per tick)
+;
+; COORDINATE SYSTEM (for direct hardware - V6335D):
+; --------------------------------------------------
+; Virtual Screen: 640x200 pixels (standard CGA resolution)
+; V6335D Hardware: Uses different coordinate space
+;
+; Transformation (used in BBalls2+):
+;   Hardware X = (Virtual X / 2) + 15
+;   Hardware Y = Virtual Y + 8
+;
+; Sprite origin is TOP-LEFT corner (not center like mouse pointer)
+;
+; Virtual Bounds (for 16x16 sprite to stay on screen):
+;   Left:   X >= 0
+;   Right:  X <= 608  (accounts for X/2 transform + 16px width)
+;   Top:    Y >= 8    (accounts for +8 offset)
+;   Bottom: Y <= 184  (200 - 16px height)
+;
+; NEXT STEPS (Learning Progression):
+; - BBalls1.asm: 3 balls, mouse driver (crude multiplexing attempt)
+; - BBalls2.asm: 3 balls, direct hardware (faster but still flickers)
+; - BBalls3.asm: 3 balls cycling, vsync sync (time-division, NOT multiplexing)
+; - BBalls4+: True raster-sync multiplexing (THIS is the solution!)
 
 CPU 186
 

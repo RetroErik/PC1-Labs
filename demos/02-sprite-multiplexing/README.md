@@ -1,150 +1,130 @@
 # Sprite Multiplexing Demo - Bouncing Balls
 
-Advanced sprite demo series showing how to use a single hardware sprite to animate multiple objects via rapid repositioning and raster-synchronized multiplexing.
+True raster-synchronized sprite multiplexing demos showing how to display multiple sprites from a single hardware sprite by chasing the CRT beam.
 
-## BBalls Versions
+## Files in This Folder
 
 | Version | File | Features | Balls |
-|---------|------|----------|-------|
-| 0.2 | BBalls1.asm | Basic multiplexing using mouse driver | 3 |
-| 0.3 | BBalls2.asm | Direct V6335D hardware access, no mouse driver | 3 |
-| 0.4 | BBalls3.asm | Vsync-synchronized, one ball per frame cycling | 3 |
+|---------|------|----------|---------|
 | 0.5 | BBalls4.asm | True raster-sync multiplexing (2 balls in one frame) | 2 |
-| 0.6 | BBalls5.asm | Raster-sync + random rainbow colors + XOR mode | 2 |
+| 0.6 | BBalls5.asm | Raster-sync + random rainbow colors + XOR/solid modes | 2 |
 | 0.7 | BBalls6.asm | Raster-sync + spinning line animation (8 frames) + rainbow colors | 2 |
+
+> **Note**: BBalls1-3 (earlier learning versions) are in the `01-Using-Mouse-Sprite` folder.
 
 ## Version Details
 
-### BBalls1.asm (v0.2) - Basic Multiplexing
-Uses the mouse driver to animate 3 bouncing balls. Repositions the sprite 3 times per frame (once for each ball) with small delays between repositioning to create persistence of vision.
-
-### BBalls2.asm (v0.3) - Direct Hardware Access
-Removes mouse driver dependency and directly controls the V6335D hardware sprite. Includes proper virtual-to-hardware coordinate transformation (X/2 + 15, Y + 8). Still animates 3 bouncing balls with frame-based multiplexing.
-
-### BBalls3.asm (v0.4) - Vsync-Synchronized
-Synchronizes ball updates to screen refresh (vsync). Cycles through updating one ball per frame, creating a smoother animation. Still uses 3 balls but distributes computation across frames.
-
-### BBalls4.asm (v0.5) - True Raster-Sync Multiplexing
-Introduces true raster-synchronized multiplexing with **2 balls displayed simultaneously in a single frame**. Splits the screen into two vertical zones (top half and bottom half) and reposition the sprite mid-frame to "chase" the CRT beam. No flicker, both balls visible at the same time.
+### BBalls4.asm (v0.5) - True Raster-Sync Multiplexing (THE BREAKTHROUGH)
+Introduces true raster-synchronized multiplexing with **2 balls displayed simultaneously in a single frame**. Splits the screen into two vertical zones (top half and bottom half) and repositions the sprite mid-frame to "chase" the CRT beam. No flicker, both balls visible at the same time. Pure white, no embellishment - focuses on the core technique.
 
 ### BBalls5.asm (v0.6) - Raster-Sync + Rainbow Colors
 Extends BBalls4 with dynamic features:
 - Random rainbow color selection on every bounce (never repeats consecutively)
-- Separate color modes: top ball in solid mode, bottom ball in XOR transparent mode
+- Different blend modes: top ball XOR transparent (see-through!), bottom ball solid
 - Color and mode changes mid-frame via hardware registers
 
 ### BBalls6.asm (v0.7) - Raster-Sync + Spinning Animation
 Advanced version with frame-based sprite shape animation:
 - 8-frame spinning line animation (line rotates 45° per frame)
 - Random rainbow colors on every bounce
-- Both balls use XOR transparent mode
+- Top ball XOR transparent, bottom ball solid
 - Sprite shape updates mid-frame along with color changes
 
-## How It Works
+## How Raster-Sync Multiplexing Works
 
-**The Challenge**: The V6335D only has ONE hardware sprite. To show multiple balls, we:
+**The Challenge**: The V6355D only has ONE hardware sprite. How do we show 2 balls without flicker?
 
-1. **Update physics** for all 3 balls independently
-2. **Reposition the sprite** 3 times per frame:
-   - Draw ball 1 (position sprite, small delay for persistence)
-   - Draw ball 2 (reposition, small delay)
-   - Draw ball 3 (reposition, small delay)
-3. **Wait for next timer tick** (~55ms total frame time)
+**The Solution**: Chase the CRT beam!
 
-The human eye + display refresh persistence create the illusion of 3 simultaneous bouncing balls.
+```
+1. Wait for vsync (beam returns to top of screen)
+2. Position sprite at Ball 1 (top half of screen)
+3. Wait for beam to pass Ball 1's Y position + 16 pixels
+4. Reposition sprite to Ball 2 (bottom half of screen)
+5. Result: Both balls drawn in ONE frame = no flicker!
+```
+
+The key insight is that once the CRT beam has drawn a scanline, it won't return to that line until the next frame. So we can safely reposition the sprite after the beam passes.
 
 ## Technical Details
+
+### Screen Zones
+- **Ball 1 (top)**: Y = 8 to 84 (sprite bottom at scanline 100)
+- **Ball 2 (bottom)**: Y = 100 to 184
 
 ### Physics
 Each ball maintains:
 - Position: `ballN_x`, `ballN_y`
 - Velocity: `ballN_vx`, `ballN_vy`
-- Bounds: 0-639 (H), 0-199 (V) with 8-pixel margin
+- Bounds: 0-639 (H), 0-199 (V) with margins
 
-### Sprite Multiplexing Technique
+### Raster-Sync Code Pattern
 
 ```asm
-; Update positions for all 3 balls
-call update_ball1
-call update_ball2
-call update_ball3
+; 1. Wait for vsync
+call wait_vsync
 
-; Rapidly reposition sprite at each ball's location
-mov ax, 04h         ; Function 04h: Move pointer
-mov cx, [ball1_x]
+; 2. Position sprite for Ball 1 (top zone)
+mov bx, [ball1_x]
 mov dx, [ball1_y]
-int 33h             ; Show ball 1
+call set_sprite_pos
 
-mov cx, 0x3FFFh     ; Brief delay for visual persistence
-call delay_short
+; 3. Wait for beam to pass Ball 1's position
+mov ax, [ball1_y]
+add ax, 24           ; sprite height + margin
+call wait_for_line
 
-mov cx, [ball2_x]   ; Reposition to ball 2
+; 4. Reposition sprite for Ball 2 (bottom zone)
+mov bx, [ball2_x]
 mov dx, [ball2_y]
-int 33h
+call set_sprite_pos
 
-mov cx, 0x3FFFh
-call delay_short
-
-mov cx, [ball3_x]   ; Reposition to ball 3
-mov dx, [ball3_y]
-int 33h
-
-; Wait for next frame
+; Result: Both balls visible simultaneously!
 ```
 
 ### Why This Works
 
-- Each repositioning + delay (~16ms loop) creates **persistence of vision**
-- Humans can't distinguish the rapid repositioning if the delay is short enough
-- Total frame time still syncs to BIOS timer (~55ms), keeping animation smooth
-- No flickering because we're not clearing/redrawing—just repositioning
+- The CRT beam scans top-to-bottom, left-to-right
+- Once a scanline is drawn, it won't be drawn again until next frame
+- By timing our sprite repositioning, we can show multiple objects
+- **No delays, no flickering** - just precise synchronization with the display
 
 ## Building
 
 ```bash
-nasm -f bin BBalls1.asm -o BBalls1.com
-nasm -f bin BBalls2.asm -o BBalls2.com
-nasm -f bin BBalls3.asm -o BBalls3.com
 nasm -f bin BBalls4.asm -o BBalls4.com
 nasm -f bin BBalls5.asm -o BBalls5.com
 nasm -f bin BBalls6.asm -o BBalls6.com
 ```
 
-All versions are self-contained .com files (except BBalls1 which requires the mouse driver).
+All versions are self-contained .com files that directly access V6355D hardware.
 
 ## Running
 
-### BBalls1 (with mouse driver)
 ```bash
-mouse.com /I
-BBalls1.com
-```
-
-### BBalls2-6 (standalone)
-```bash
-BBalls2.com
-BBalls3.com
 BBalls4.com
 BBalls5.com
 BBalls6.com
 ```
 
-Press ESC to exit any demo.
+Press ESC to exit any demo. Press ? for help screen.
 
 ## Customization
 
 ### Learning Path
-Start with **BBalls1** to understand basic multiplexing concepts. Progress through the versions to see how techniques evolve:
-- BBalls1-3: Frame-based multiplexing (simple, but multiple balls require multiple frame cycles)
-- BBalls4: The breakthrough - true raster-sync multiplexing (multiple balls in ONE frame)
-- BBalls5-6: Adding visual effects while maintaining raster-sync
+Start with **BBalls1-3** in the `01-Using-Mouse-Sprite` folder to understand basic concepts, then progress to these demos:
+- **BBalls4**: The breakthrough - true raster-sync multiplexing (2 balls in ONE frame, no flicker!)
+- **BBalls5**: Adding rainbow colors and blend mode switching
+- **BBalls6**: Frame-based sprite animation with all the visual effects
 
-### Add More Balls (for earlier versions)
+### Add More Balls
 
-1. Copy `ball1_x/y/vx/vy` to `ball4_x/y/vx/vy` (add data)
-2. Add `update_ball4` routine (copy and rename `update_ball1`)
-3. Add draw/reposition in main loop
-4. Note: More balls = slower frame rate due to repositioning overhead
+For raster-sync multiplexing, adding more balls is constrained by screen zones:
+- 2 balls: Screen divided into top/bottom halves (current approach)
+- 3 balls: Would need 3 zones (~66 pixels each)
+- More zones = less vertical movement range per ball
+
+The tradeoff is vertical space vs number of sprites.
 
 ### Adjust Ball Speeds
 
@@ -165,36 +145,16 @@ frame_1: db 0x00, 0x00, 0x04, 0x08, 0x08, 0x04, 0x00, 0x00  ; Diagonal
 
 Increase for faster movement, decrease for slower.
 
-### Change Sprite Mask
-
-Replace the `sprite_mask` data with your own 16×16 AND/XOR pattern.
-
-## Performance Notes
-
-- **3 balls**: ~60ms frame time (just fits in ~55ms tick, slight slowdown)
-- **4 balls**: ~80ms frame time (noticeably slower)
-- **Optimization**: Remove delay loops, sync directly to raster (requires scanline register access)
-
-## Advanced: Raster-Synced Multiplexing
-
-For true hardware multiplexing (sprite drawn at different Y positions on the same scanline), you would:
-
-1. Hook timer interrupt or read V6335D scanline register
-2. Sync repositioning to specific screen rows
-3. Position sprite at ball1's Y on scanline 50, ball2's Y on scanline 100, etc.
-
-This demo uses the simpler **frame-based** approach (all 3 balls per frame cycle).
-
 ## Notes
 
-- Requires Simone Riminucci's INT 33h mouse driver
-- Works in text and graphics modes
-- Visual effect depends on monitor refresh rate and human persistence of vision
-- Flicker may occur on very slow systems or if delays are too short
+- Requires Olivetti PC1/M24 (or compatible with V6355D graphics chip)
+- Uses CGA 640x200 mode (Mode 6)
+- All demos are standalone - no mouse driver or other dependencies
+- Visual effect depends on correct raster timing
 
 ## Future Enhancements
 
-- Scanline-based multiplexing (true raster effect)
-- Color cycling while multiplexing (plasma effect with 3 balls)
+- 3+ ball multiplexing with smaller vertical zones
 - Collision detection between balls
 - Variable ball speeds and sizes (via shape swapping)
+- Horizontal sprite multiplexing (for side-scrollers)
