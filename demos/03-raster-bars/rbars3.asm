@@ -143,6 +143,9 @@ main:
     int 0x10
     
     ; Exit to DOS
+    mov ax, 0003h      ; BIOS video: set mode 03h (80x25 text)
+    int 10h
+
     mov ax, 0x4C00
     int 0x21
 

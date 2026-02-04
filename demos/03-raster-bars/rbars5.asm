@@ -89,7 +89,7 @@ main:
     mov ax, 0x0003              ; 80x25 text mode
     int 0x10
     
-    mov ax, 0x4C00
+    mov ax, 0x4C00              ; DOS: terminate, return code 0
     int 0x21
 
 ; ============================================================================

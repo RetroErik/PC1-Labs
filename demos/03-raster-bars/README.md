@@ -49,23 +49,15 @@ The V6355D provides two main mechanisms:
 ### `rbars3.asm - rbars7.asm` - Various Techniques
 Different variations and optimizations of PORT_COLOR approach.
 
-### `rbarsram.asm` - Palette RAM (512 colors)
-**Technique:** Direct Palette RAM manipulation per scanline
-- **Speed:** 3 OUTs per scanline (slower than PORT_COLOR)
-- **Colors:** 512 colors available (though only 16 visible at once per scanline)
-- **Power:** Affects drawn graphics (sprites, text) not just background
-- **Flexibility:** Can change ANY palette entry (0-15) independently
-  - Example: Entry 0 cycles red shades, Entry 5 cycles blue shades
-- **Multiple entries:** Can change 3 palette entries = 9 OUTs per scanline
-- **Amiga-like:** Similar concept to Copper/HAM on Amiga (temporal palette tricks)
-- **Demo feature:** Cycles through all 512 colors smoothly (200 colors over 200 scanlines)
+### Palette RAM Demos - MOVED
+**Palette RAM demonstrations have been moved to `05-scanline-palette/` folder**
 
-#### Why Palette RAM is Powerful:
-1. **Direct RGB Control** - Set actual R,G,B values, not picking from fixed palette
-2. **Affects Graphics** - Sprites using that palette entry change color too
-3. **Any Entry** - Not limited to color 0, can cycle entries 0-15 independently
-4. **Multiple per scanline** - Change text, sprites, and background independently
-5. **Clean gradients** - 512 colors vs PORT_COLOR's 16
+These demos demonstrate per-scanline Palette RAM manipulation to display 512 colors:
+- `palram1.asm` - Basic version (417 lines, single gradient)
+- `palram2.asm` - Intermediate (622 lines, 6 palette modes)
+- `palram3.asm` - Advanced/Reference (925 lines, H/V SYNC controls)
+
+**See [../05-scanline-palette/README.md](../05-scanline-palette/README.md) for details.**
 
 ## Compilation & Testing
 
@@ -113,22 +105,12 @@ At 8 MHz (NEC V40), per scanline:
 
 **Critical timing issue:** ~15 instructions of delay between HSYNC edge and when color output takes effect. This is why rbars1 shows tearing (calculates color after HSYNC) while rbars2 (pre-computed) doesn't.
 
-### Palette RAM Format
-
-Each palette entry has 2 bytes:
-- **Byte 1 (Red):** bits 0-2 = intensity (0-7)
-- **Byte 2 (Green|Blue):**
-  - bits 4-6 = green intensity (0-7)
-  - bits 0-2 = blue intensity (0-7)
-
-Example: Bright red = 0x07, 0x00 (R=7, G=0, B=0)
-
 ## Learning Progression
 
 1. **Start with rbars1** - Understand the basic PORT_COLOR technique and why tearing happens
 2. **Try rbars2** - See how pre-computing eliminates tearing
 3. **Explore rbars3-7** - Various optimizations and variations
-4. **Study rbarsram** - Learn the power of Palette RAM and its trade-offs
+4. **Advanced:** See `05-scanline-palette/` folder for Palette RAM technique demos
 
 ## Educational Notes
 
@@ -141,14 +123,8 @@ Example: Bright red = 0x07, 0x00 (R=7, G=0, B=0)
 ### Key Insights
 - **Timing matters:** Hardware-level effects require cycle-accurate timing
 - **Tearing is real:** Color changes must happen during retrace, not active display
-- **Trade-offs:** PORT_COLOR is fast but limited; Palette RAM is slower but infinitely more powerful
+- **Trade-offs:** PORT_COLOR is fast but limited; see `05-scanline-palette/` for more powerful techniques
 - **Creativity:** Limited hardware sparked incredible creative effects in the demo scene
-
-### Amiga Connection
-Palette RAM manipulation is conceptually similar to the Amiga's Copper:
-- **Amiga HAM:** Per-pixel spatial modification (4096 colors, artifacts)
-- **PC1 Palette RAM:** Per-scanline temporal modification (512 colors, clean)
-- **Both:** Clever palette tricks to break hardware color limitations
 
 ## References
 

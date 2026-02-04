@@ -31,8 +31,8 @@
 VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment (not B800!)
 
 ; --- Yamaha V6355D I/O Ports ---
-PORT_REG_ADDR   equ 0xDD        ; Register Bank Address Port (0x40=unlock, 0x80=lock)
-PORT_REG_DATA   equ 0xDE        ; Register Bank Data Port (palette data)
+PORT_REG_ADDR   equ 0x3DD       ; Register Bank Address Port (0x40=unlock, 0x80=lock)
+PORT_REG_DATA   equ 0x3DE        ; Register Bank Data Port (palette data)
 PORT_MODE       equ 0x3D8       ; Mode Control Register
 PORT_COLOR      equ 0x3D9       ; Color Select Register (full-width when unlocked)
 PORT_STATUS     equ 0x3DA       ; Status Register (read-only)
@@ -124,7 +124,11 @@ main:
 ; ============================================================================
 .exit:
     ; Just exit to DOS - COMMAND.COM will restore the screen
-    mov ax, 0x4C00
+   
+    mov ax, 0003h      ; BIOS video: set mode 03h (80x25 text)
+    int 10h
+   
+    mov ax, 0x4C00     ; DOS: terminate, return code 0
     int 0x21
 
 ; ============================================================================
