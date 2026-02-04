@@ -80,6 +80,47 @@ The key insight: Instead of being limited to 16 simultaneous colors (standard CG
 - `V` - Toggle VSYNC wait (on/off)
 - `ESC` - Exit to DOS
 
+### `palram4.asm` - Optimized Single Palette
+**Purpose:** Production-ready version with minimal code
+- **Complexity:** Simple (~556 lines - optimized from 932)
+- **Features:**
+  - Single rainbow palette (full spectrum)
+  - Clean, commented code for reuse in projects
+  - Toggle HSYNC/VSYNC for experimentation
+  - Minimal overhead
+- **Learning focus:** How to implement the technique efficiently
+- **Good for:** Template for your own projects, performance reference
+
+**Controls:**
+- `H` - Toggle HSYNC wait
+- `V` - Toggle VSYNC wait
+- `ESC` - Exit to DOS
+
+### `palram5.asm` - **NEW!** Multiple Writes Per Scanline Experiment
+**Purpose:** RESEARCH DEMO - How many color changes per scanline are possible?
+- **Complexity:** Experimental (~410 lines)
+- **Features:**
+  - Writes palette entry 0 **multiple times** during EACH scanline
+  - Creates horizontal color stripes (not vertical gradients)
+  - Live control: increase/decrease writes per scanline
+  - Demonstrates timing limits and polling jitter
+  - Extensively documented with research findings
+- **Learning focus:** Understand horizontal timing, CPU cycle budgets, polling vs interrupts
+- **Good for:** Understanding the technical limits of the V6355D, advanced timing experiments
+
+**Research Findings Documented:**
+- Polling introduces 4-8 pixel horizontal jitter (normal and unavoidable)
+- Maximum ~15-20 palette writes fit in one scanline period
+- Excessive delays cause scanline skipping (200 lines → 68 lines visible)
+- Explains why timer-based techniques (8088mph, Area 5150) use PIT interrupts instead
+
+**Controls:**
+- `.` (period) - Increase writes per scanline
+- `,` (comma) - Decrease writes per scanline
+- `H` - Toggle HSYNC wait (compare synchronized vs unsynchronized)
+- `V` - Toggle VSYNC wait
+- `ESC` - Exit to DOS
+
 ## Why Palette RAM Instead of PORT_COLOR?
 
 The V6355D offers two raster bar techniques:
@@ -125,6 +166,8 @@ At 8 MHz (NEC V40), per scanline:
 nasm -f bin -o palram1.com palram1.asm
 nasm -f bin -o palram2.com palram2.asm
 nasm -f bin -o palram3.com palram3.asm
+nasm -f bin -o palram4.com palram4.asm
+nasm -f bin -o palram5.com palram5.asm
 ```
 
 ### Copy to floppy:
@@ -137,6 +180,8 @@ copy palram*.com a:
 A:\palram1.com
 A:\palram2.com
 A:\palram3.com
+A:\palram4.com
+A:\palram5.com
 ```
 
 ## Learning Progression
@@ -144,6 +189,8 @@ A:\palram3.com
 1. **Start with `palram1.asm`** - Understand the basic per-scanline write pattern
 2. **Try `palram2.asm`** - Explore different gradient techniques
 3. **Study `palram3.asm`** - Learn about timing constraints and synchronization
+4. **Use `palram4.asm`** - See clean, optimized implementation for your projects
+5. **Experiment with `palram5.asm`** - Explore horizontal timing limits and advanced techniques
 
 ## Educational Insights
 
@@ -154,10 +201,25 @@ A:\palram3.com
 - Teaches real-time constraints and tight timing windows
 
 ### Key Learnings
-1. **Timing is critical** - You have only ~80 cycles during horizontal blanking
+1. **Timing is critical** - You have only ~80 cycles during horizontal blanking (vertical changes) or ~400 cycles per full scanline (horizontal changes)
 2. **Synchronization matters** - You must wait for HBLANK, or visual tearing occurs
 3. **Direct hardware access** - I/O ports give you low-level control
 4. **Creative limitations breed innovation** - 16 colors → 512 through clever timing
+5. **Polling vs Interrupts** - V6355D requires polling HSYNC, introducing unavoidable jitter. Timer interrupt methods (8088mph, Area 5150, Kefrens) use PIT to achieve zero-jitter scanline sync on CGA.
+
+### Advanced Timing Techniques
+**Polling Method (used in these demos):**
+- Read status port (0xDA) to detect HSYNC transitions
+- Simple to implement, works on V6355D
+- 4-8 pixel horizontal jitter due to polling loop latency
+- Good enough for most effects
+
+**Timer Interrupt Method (8088mph, Area 5150, Kefrens):**
+- Program PIT (8253 chip, ports 0x40-0x43) to generate IRQ0 at scanline frequency
+- Example: `writePIT16 0, 2, 76*262` = ~59.923Hz with 262 scanlines
+- ISR (Interrupt Service Routine) writes palette with zero jitter
+- Requires precise timer calibration to match CRT timing
+- Not verified to work on V6355D (may have different timing than CGA)
 
 ### Comparison: Retro Color-Breaking Techniques
 - **PC1 Palette RAM:** Per-scanline temporal manipulation (clean gradients, 512 colors)
