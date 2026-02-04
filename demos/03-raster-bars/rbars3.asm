@@ -1,198 +1,307 @@
 ; ============================================================================
-; RBARS3.ASM - Color Cycling Raster Bar Demo for Olivetti Prodest PC1
-; Horizontal scrolling raster bars with C64-style smooth color cycling
+; RBARS1b.ASM - Raster Bar Demo v1b: Modulo Banding (Full-Width)
+; Thick scrolling color bands using division-based color calculation
 ; Written for NASM - NEC V40 (80186 compatible) @ 8 MHz
-; By Retro Erik - 2026 with help from GitHub Copilot
+; By Retro Erik - 2026
 ;
 ; Target: Olivetti PC1 with Yamaha V6355D video controller
 ; Video Mode: CGA 160x200x16 (Hidden mode)
 ;
-; Technique:
-;   - Changes PORT_COLOR per scanline during hsync
-;   - Uses static precomputed pattern table (no per-frame calculation)
-;   - Scroll offset advances each frame for smooth animation
-;   - C64-style gradient cycling: rotates palette entries during vblank for liquid effect
+; TECHNIQUE:
+;   - Per-scanline color changes via PORT_COLOR register
+;   - Modulo banding: color = (scanline + offset) / 12 AND 0x0F
+;   - Creates thick 12-scanline bands that scroll smoothly
+;   - Uses edge detection for clean top/bottom borders
+;
+; WHY FULL-WIDTH WORKS:
+;   This demo doesn't write 0x80 to port 0xDD, so the default full-width
+;   PORT_COLOR mode is preserved. See rbars1.asm for the full discovery.
 ;
 ; Controls:
 ;   Any key - Exit to DOS
-;
-; Prerequisites:
-;   Run PERITEL.COM first to set horizontal position correctly
 ; ============================================================================
 
 [BITS 16]
 [ORG 0x100]
 
 ; ============================================================================
-; Constants - EDIT THESE TO CUSTOMIZE THE DEMO
+; Constants
 ; ============================================================================
 
-VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment
+; --- Video Memory ---
+VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment (not B800!)
 
-; Yamaha V6355D I/O Ports
-PORT_REG_ADDR   equ 0x3DD       ; Register address port
-PORT_REG_DATA   equ 0x3DE       ; Register data port
-PORT_MODE       equ 0x3D8       ; Mode control register
-PORT_COLOR      equ 0x3D9       ; Color select (border/overscan color)
-PORT_STATUS     equ 0x3DA       ; Status (bit 0=hsync, bit 3=vblank)
+; --- Yamaha V6355D I/O Ports ---
+; Base address is 0x3D0 on PC1, but 0xD0-0xDF also works as alias
+PORT_REG_ADDR   equ 0xDD        ; Register Bank Address Port (select register)
+PORT_REG_DATA   equ 0xDE        ; Register Bank Data Port (read/write)
+PORT_MODE       equ 0xD8        ; Mode Control Register
+PORT_COLOR      equ 0xD9        ; Color Select Register (border color, bits 0-3)
+PORT_STATUS     equ 0xDA        ; Status Register (read-only)
+                                ; Bit 0: Display enable (1 = retrace/blanking)
+                                ; Bit 3: Vertical retrace (1 = in VBLANK)
 
-; Screen parameters
-SCREEN_HEIGHT   equ 200         ; Visible scanlines
-SCREEN_SIZE     equ 16384       ; Full video RAM (16KB)
+; --- Screen Dimensions (160x200x16 hidden mode) ---
+SCREEN_HEIGHT   equ 200         ; Vertical resolution in pixels/scanlines
+BYTES_PER_ROW   equ 80          ; 160 pixels / 2 pixels per byte
 
-; ============================================================================
-; VBLANK WINDOW - Safe time for palette updates
-; ============================================================================
+; --- Raster Bar Parameters ---
+; A raster bar is a band of colored scanlines that creates a gradient effect
+BAR_HEIGHT      equ 16          ; Height of the raster bar in scanlines
+BAR_SPEED       equ 1           ; Movement speed (scanlines per frame)
+
+; --- C64-inspired Color Palette (mapped to V6355D RGB values) ---
+; The V6355D uses 3 bits per color channel (RGB 3-3-3, 512 colors)
+; Format: Byte 1 = Red (bits 0-2), Byte 2 = Green (bits 4-6) | Blue (bits 0-2)
 ;
-; What is VBlank?
-;   VBlank (vertical blanking) is the time between the last visible scanline
-;   and when the electron beam returns to the top of the screen. During this
-;   interval, no pixels are being drawn to the display.
-;
-; Why update palette during VBlank?
-;   - The DAC (Digital-to-Analog Converter) is idle
-;   - No VRAM fetches happening
-;   - Palette register writes won't interfere with active display
-;   - Changes are stable and glitch-free
-;
-; PC1 VBlank timing:
-;   - Display: 200 visible scanlines (0-199)
-;   - VBlank: Remaining scanlines until frame repeats (~56 scanlines)
-;   - Total frame: ~256 scanlines
-;   - Frame rate: ~50Hz (PAL CRT display)
-;
-; Detected via PORT_STATUS bit 3:
-;   - bit 3 = 1: In VBlank (safe for palette updates)
-;   - bit 3 = 0: Active display (avoid palette changes)
-;
-; ============================================================================
-; RASTER BAR CONFIGURATION - Adjust these values to customize appearance
+; We define 16 colors inspired by the C64 palette:
+;  0: Black       4: Purple      8: Orange     12: Medium Gray
+;  1: White       5: Green       9: Brown      13: Light Green
+;  2: Red         6: Blue       10: Light Red  14: Light Blue
+;  3: Cyan        7: Yellow     11: Dark Gray  15: Light Gray
 ; ============================================================================
 
-LINES_PER_COLOR   equ 2         ; Scanlines per gradient color (1=thin, 3=thick)
-BLACK_SPACING     equ 18        ; Black lines between bars (more = more spacing)
-BAR_SPEED         equ 1         ; Scroll speed per frame (1=smooth, 2+=faster)
-COLOR_CYCLE_DELAY equ 8         ; Frames between palette rotations (higher=slower)
-
-; Calculated constants (don't edit these)
-GRADIENT_LINES  equ (7 * LINES_PER_COLOR)           ; Lines for one gradient (7 colors)
-BAR_LINES       equ (GRADIENT_LINES * 2)            ; Full bar (up + down gradient)
-BAR_SPACING     equ (BAR_LINES + BLACK_SPACING * 2) ; Total pattern cycle
-
 ; ============================================================================
-; Main Program
+; Main Program Entry Point
 ; ============================================================================
 main:
+    ; Save original video mode
+    mov ah, 0x0F
+    int 0x10
+    mov [orig_video_mode], al
+    
+    ; Enable the hidden 160x200x16 graphics mode
     call enable_graphics_mode
-    call set_palette
+    
+    ; Clear screen to black
     call clear_screen
     
+    ; Initialize raster bar position
     mov byte [bar_y_pos], 0
-    mov byte [frame_counter], 0
-
+    mov byte [bar_frame], 0
+    
+; ============================================================================
+; Main Loop - Runs until keypress
+; ============================================================================
 .main_loop:
+    ; -----------------------------------------------------------------
+    ; Step 1: Wait for Vertical Retrace (VBLANK)
+    ; This ensures we start drawing at the top of the frame
+    ; -----------------------------------------------------------------
     call wait_vblank
     
-    ; Update scroll position
+    ; -----------------------------------------------------------------
+    ; Step 2: Update raster bar position (animation)
+    ; Move the bar down by BAR_SPEED scanlines each frame
+    ; -----------------------------------------------------------------
     mov al, [bar_y_pos]
     add al, BAR_SPEED
-    cmp al, BAR_SPACING
+    cmp al, SCREEN_HEIGHT
     jb .no_wrap
-    xor al, al
+    xor al, al              ; Wrap to top of screen
 .no_wrap:
     mov [bar_y_pos], al
     
-    ; Color cycling - rotate palette every N frames
-    mov al, [frame_counter]
-    inc al
-    cmp al, COLOR_CYCLE_DELAY
-    jb .no_cycle
-    xor al, al
-    call rotate_palette         ; Rotate during vblank
-.no_cycle:
-    mov [frame_counter], al
+    ; Increment frame counter (used for color cycling)
+    inc byte [bar_frame]
     
+    ; -----------------------------------------------------------------
+    ; Step 3: Render the raster bars for this frame
+    ; Loop through all visible scanlines and set colors
+    ; -----------------------------------------------------------------
     call render_raster_bars
     
-    ; Check for keypress
-    mov ah, 0x01
+    ; -----------------------------------------------------------------
+    ; Step 4: Check for keypress to exit
+    ; -----------------------------------------------------------------
+    mov ah, 0x01            ; Check keyboard buffer (non-blocking)
     int 0x16
-    jz .main_loop
+    jz .main_loop           ; No key pressed, continue
     
-    ; Exit
+    ; Key was pressed - consume it and exit
     mov ah, 0x00
-    int 0x16                    ; Consume key
+    int 0x16
     
-    call restore_palette        ; Restore original palette before exit
+; ============================================================================
+; Exit - Restore text mode and return to DOS
+; ============================================================================
+.exit:
+    ; Disable hidden graphics mode
+    call disable_graphics_mode
     
-    mov ax, 0x0003              ; Restore text mode
+    ; Restore original video mode
+    mov ah, 0x00
+    mov al, [orig_video_mode]
     int 0x10
+    
+    ; Clear screen
+    mov ah, 0x06
+    mov al, 0
+    mov bh, 0x07            ; Light gray on black
+    xor cx, cx
+    mov dx, 0x184F
+    int 0x10
+    
+    ; Exit to DOS
     mov ax, 0x4C00
     int 0x21
 
 ; ============================================================================
-; render_raster_bars - Per-scanline color changes via PORT_COLOR
-; Outputs one color per scanline from the pattern table
-; Timing-critical: runs with interrupts disabled
+; render_raster_bars - Render raster bars on left/right borders
+;
+; Animated version: Bars scroll down the screen smoothly
+; Uses bar_y_pos as offset to create scrolling effect
 ; ============================================================================
 render_raster_bars:
     push ax
     push bx
+    push cx
     push dx
-    push si
     
-    cli
+    cli                     ; Disable interrupts for stable timing
     
-    ; SI = starting offset into pattern
-    mov al, [bar_y_pos]
-    xor ah, ah
-    mov si, ax
-    
-    xor bx, bx                  ; BX = scanline counter
+    xor bx, bx              ; BX = scanline counter (0-199)
     mov dx, PORT_STATUS
     
 .scanline_loop:
-    ; Wait for hsync low
-.wait_low:
+    ; Step 1: Wait for display period (bit 0 = 0)
+.wait_display:
     in al, dx
     test al, 0x01
-    jnz .wait_low
+    jnz .wait_display
     
-    ; Wait for hsync high
-.wait_high:
+    ; Step 2: Wait for retrace to start (bit 0 = 1)
+.wait_retrace:
     in al, dx
     test al, 0x01
-    jz .wait_high
+    jz .wait_retrace
     
-    ; Output color from pattern table
-    mov al, [static_pattern + si]
-    out PORT_COLOR, al
+    ; Step 3: Calculate color with scroll offset
+    ; color = ((scanline + bar_y_pos) / 12) AND 15
+    ; This creates 12-scanline bands that scroll down
+    mov ax, bx              ; AX = current scanline
+    add al, [bar_y_pos]     ; Add scroll offset
+    adc ah, 0               ; Handle overflow
+    mov cl, 12              ; Thinner bands = more bars visible
+    div cl                  ; AL = (scanline + offset) / 12
+    and al, 0x0F            ; Keep in range 0-15
     
-    ; Advance pattern index with wrap
-    inc si
-    cmp si, BAR_SPACING
-    jb .no_wrap
-    xor si, si
-.no_wrap:
+    ; Step 4: Output color
+    mov dx, PORT_COLOR
+    out dx, al
+    mov dx, PORT_STATUS     ; Restore DX for next iteration
     
+    ; Next scanline
     inc bx
     cmp bx, SCREEN_HEIGHT
     jb .scanline_loop
     
-    ; Reset to black after frame
+    ; Reset border to black
     xor al, al
-    out PORT_COLOR, al
+    mov dx, PORT_COLOR
+    out dx, al
     
-    sti
+    sti                     ; Re-enable interrupts
     
-    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
 
 ; ============================================================================
+; get_bar_color - Calculate the color for a given scanline
+;
+; Input:  AX = current scanline (0-199)
+; Output: AL = color index (0-15)
+;
+; This function determines what color a scanline should be based on:
+;   - The bar's current Y position (bar_y_pos)
+;   - The bar's height (BAR_HEIGHT)
+;   - A gradient within the bar (smooth color transition)
+;
+; EXTENDING FOR MULTIPLE BARS:
+; To add more bars, check distance from multiple Y positions and
+; combine/overlay the results. Each bar could have its own:
+;   - Y position
+;   - Color palette (warm, cool, rainbow, etc.)
+;   - Height and gradient style
+; ============================================================================
+get_bar_color:
+    push bx
+    push cx
+    
+    ; Calculate distance from bar center
+    mov bl, [bar_y_pos]     ; BL = bar Y position (center)
+    xor bh, bh
+    
+    ; Calculate signed distance: scanline - bar_center
+    mov cx, ax              ; CX = scanline
+    sub cx, bx              ; CX = scanline - bar_y
+    
+    ; Handle wrap-around (bar can cross screen edge)
+    cmp cx, SCREEN_HEIGHT/2
+    jl .no_wrap_high
+    sub cx, SCREEN_HEIGHT   ; Adjust for wrap
+.no_wrap_high:
+    cmp cx, word -(SCREEN_HEIGHT/2)
+    jge .no_wrap_low
+    add cx, SCREEN_HEIGHT   ; Adjust for wrap
+.no_wrap_low:
+    
+    ; Get absolute distance
+    mov ax, cx
+    test ax, ax
+    jns .positive
+    neg ax                  ; AX = |distance|
+.positive:
+    
+    ; Check if within bar height
+    cmp ax, BAR_HEIGHT/2
+    ja .outside_bar
+    
+    ; -----------------------------------------------------------------
+    ; Inside the bar - create a color gradient
+    ; Distance 0 (center) = brightest color (white, index 15)
+    ; Distance BAR_HEIGHT/2 (edge) = darker color
+    ; We use a simple linear gradient through the color palette
+    ; -----------------------------------------------------------------
+    
+    ; Map distance (0 to BAR_HEIGHT/2) to color (15 down to 8)
+    ; Formula: color = 15 - (distance * 8 / (BAR_HEIGHT/2))
+    ; Simplified for BAR_HEIGHT=16: color = 15 - distance
+    mov bx, ax              ; BX = distance (0-7)
+    mov al, 15
+    sub al, bl              ; AL = 15 - distance = color (15 down to 8)
+    
+    ; Optional: Add color cycling based on frame counter
+    ; This makes the bar shimmer/animate
+    mov bl, [bar_frame]
+    shr bl, 2               ; Slow down the cycling (divide by 4)
+    and bl, 0x07            ; Keep in range 0-7
+    add al, bl
+    and al, 0x0F            ; Wrap to 0-15
+    
+    jmp .done
+    
+.outside_bar:
+    ; Outside the bar - return black (color 0)
+    xor al, al
+    
+.done:
+    pop cx
+    pop bx
+    ret
+
+; ============================================================================
 ; wait_vblank - Wait for vertical blanking interval
+;
+; Waits for the start of the vertical retrace period.
+; This ensures we begin rendering at the top of the frame.
+;
+; Method:
+;   1. Wait for any current VBLANK to end (bit 3 goes low)
+;   2. Wait for new VBLANK to start (bit 3 goes high)
 ; ============================================================================
 wait_vblank:
     push ax
@@ -200,37 +309,75 @@ wait_vblank:
     
     mov dx, PORT_STATUS
     
+    ; First, wait for current VBLANK to end (if we're in one)
 .wait_end:
     in al, dx
-    test al, 0x08
-    jnz .wait_end
+    test al, 0x08           ; Check bit 3 (vertical retrace)
+    jnz .wait_end           ; Still in VBLANK, keep waiting
     
+    ; Now wait for new VBLANK to start
 .wait_start:
     in al, dx
-    test al, 0x08
-    jz .wait_start
+    test al, 0x08           ; Check bit 3
+    jz .wait_start          ; Not in VBLANK yet, keep waiting
     
     pop dx
     pop ax
     ret
 
 ; ============================================================================
-; enable_graphics_mode - Enable 160x200x16 hidden mode
+; enable_graphics_mode - Enable Olivetti PC1 hidden 160x200x16 mode
+;
+; Configures the Yamaha V6355D for the hidden graphics mode:
+;   - Sets port 0xD8 to 0x4A to enable 16-color mode
+;
+; NOTE: Registers 0x65 and 0x67 are NOT strictly required for graphics mode.
+; The minimal requirement is just: out 0xD8, 0x4A
+; These extra registers are removed from version 1c onwards.
 ; ============================================================================
 enable_graphics_mode:
     push ax
     push dx
     
-    mov dx, PORT_MODE
+    ; NOTE: We skip BIOS and all V6355D register writes to preserve
+    ; PERITEL.COM's settings! User can PERITEL.COM first to adjust horizontal position.
+    ; 
+    ; IMPORTANT: Do NOT touch registers via 0xDD/0xDE at all!
+    ; Any write to port 0xDD might reset things.
+    
+    ; Port 0xD8: Mode Control Register
+    ; 0x4A = Enable 16-color mode (bit 6=1), graphics mode (bit 1=1),
+    ;        video enable (bit 3=1)
     mov al, 0x4A
-    out dx, al
+    out PORT_MODE, al
+    jmp short $+2
+    
+    ; Set border to black initially
+    xor al, al
+    out PORT_COLOR, al
     
     pop dx
     pop ax
     ret
 
 ; ============================================================================
-; clear_screen - Fill video RAM with color 0
+; disable_graphics_mode - Return to text mode
+; ============================================================================
+disable_graphics_mode:
+    push ax
+    push dx
+    
+    ; Reset mode control to text mode (just reverse of 0x4A)
+    mov al, 0x28
+    out PORT_MODE, al
+    jmp short $+2
+    
+    pop dx
+    pop ax
+    ret
+
+; ============================================================================
+; clear_screen - Fill video memory with black (color 0)
 ; ============================================================================
 clear_screen:
     push ax
@@ -241,8 +388,8 @@ clear_screen:
     mov ax, VIDEO_SEG
     mov es, ax
     xor di, di
-    mov cx, SCREEN_SIZE / 2
-    xor ax, ax
+    mov cx, 8192            ; 16KB = 8192 words
+    xor ax, ax              ; Black = 0x0000
     cld
     rep stosw
     
@@ -253,120 +400,48 @@ clear_screen:
     ret
 
 ; ============================================================================
-; set_palette - Load warm gradient palette into V6355D
+; set_c64_palette - Load a C64-inspired color palette into the V6355D
+;
+; The V6355D has 16 palette registers, each holding an RGB value.
+; Format: 2 bytes per color
+;   Byte 1: Red intensity (bits 0-2, values 0-7)
+;   Byte 2: Green (bits 4-6) | Blue (bits 0-2)
+;
+; This palette is inspired by the C64 but mapped to the V6355D's
+; 3-bit-per-channel RGB format.
 ; ============================================================================
-set_palette:
+set_c64_palette:
     push ax
     push cx
-    push dx
     push si
     
-    cli
+    cli                     ; Disable interrupts during palette write
     
-    mov dx, PORT_REG_ADDR
+    ; Enable palette write mode (write 0x40 to register address port)
     mov al, 0x40
-    out dx, al
+    out PORT_REG_ADDR, al
+    jmp short $+2
+    jmp short $+2
     
-    mov dx, PORT_REG_DATA
-    mov si, palette_data
-    mov cx, 32                  ; 16 colors * 2 bytes
-    
-.pal_loop:
-    lodsb
-    out dx, al
-    loop .pal_loop
-    
-    sti
-    
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; ============================================================================
-; restore_palette - Restore default CGA palette for text mode
-; ============================================================================
-restore_palette:
-    push ax
-    push cx
-    push dx
-    push si
-    
-    cli
-    
-    mov dx, PORT_REG_ADDR
-    mov al, 0x40
-    out dx, al
-    
-    mov dx, PORT_REG_DATA
-    mov si, default_palette
-    mov cx, 32                  ; 16 colors * 2 bytes
-    
-.pal_loop:
-    lodsb
-    out dx, al
-    loop .pal_loop
-    
-    sti
-    
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; ============================================================================
-; rotate_palette - Rotate gradient colors 1-7 for liquid effect
-; Called during vblank - timing not critical
-; Rotates the working palette entries, then reloads to V6355D
-; ============================================================================
-rotate_palette:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    
-    ; Save color 1 (will become color 7)
-    mov ax, [palette_data + 2]      ; Color 1: bytes 2-3
-    mov [temp_color], ax
-    
-    ; Shift colors 2-7 down to 1-6
-    mov si, palette_data + 4        ; Start at color 2
-    mov cx, 6                       ; Move 6 colors (2-7 -> 1-6)
-.shift_loop:
-    mov ax, [si]                    ; Get color N
-    mov [si - 2], ax                ; Put at N-1
-    add si, 2
-    loop .shift_loop
-    
-    ; Put saved color 1 into position 7
-    mov ax, [temp_color]
-    mov [palette_data + 14], ax     ; Color 7: bytes 14-15
-    
-    ; Reload palette to V6355D
-    cli
-    
-    mov dx, PORT_REG_ADDR
-    mov al, 0x40
-    out dx, al
-    
-    mov dx, PORT_REG_DATA
-    mov si, palette_data
+    ; Write 32 bytes of palette data (16 colors × 2 bytes)
+    mov si, c64_palette
     mov cx, 32
     
-.reload_loop:
+.pal_loop:
     lodsb
-    out dx, al
-    loop .reload_loop
+    out PORT_REG_DATA, al
+    jmp short $+2
+    loop .pal_loop
     
-    sti
+    ; Disable palette write mode
+    mov al, 0x80
+    out PORT_REG_ADDR, al
+    jmp short $+2
+    
+    sti                     ; Re-enable interrupts
     
     pop si
-    pop dx
     pop cx
-    pop bx
     pop ax
     ret
 
@@ -374,61 +449,41 @@ rotate_palette:
 ; Data Section
 ; ============================================================================
 
-bar_y_pos:      db 0            ; Current scroll position
-frame_counter:  db 0            ; Frame counter for color cycle delay
-temp_color:     dw 0            ; Temp storage for palette rotation
+; Original video mode (saved at startup)
+orig_video_mode: db 0
 
-; Static pattern table - auto-generated from configuration constants
-; Each entry = one scanline color (0=black, 1-7=gradient colors)
-static_pattern:
-    ; Gradient bright to dark (colors 1-7)
-%assign i 1
-%rep 7
-    times LINES_PER_COLOR db i
-%assign i i+1
-%endrep
-    ; Black spacing after first gradient
-    times BLACK_SPACING db 0
-    ; Gradient dark to bright (colors 7-1)
-%assign i 7
-%rep 7
-    times LINES_PER_COLOR db i
-%assign i i-1
-%endrep
-    ; Black spacing after second gradient
-    times BLACK_SPACING db 0
+; Raster bar state
+bar_y_pos:      db 0            ; Current Y position of bar center (0-199)
+bar_frame:      db 0            ; Frame counter for color cycling
 
-; Warm gradient palette (16 colors, 2 bytes each: Red, Green<<4|Blue)
-; Colors 1-7 are rotated for the liquid cycling effect
-palette_data:
-    db 0x00, 0x00               ;  0: Black (background)
-    db 0x07, 0x77               ;  1: White (brightest)
-    db 0x07, 0x72               ;  2: Light yellow
-    db 0x07, 0x62               ;  3: Yellow
-    db 0x06, 0x42               ;  4: Orange
-    db 0x05, 0x31               ;  5: Dark orange
-    db 0x04, 0x20               ;  6: Red-orange
-    db 0x03, 0x10               ;  7: Dark red (darkest)
-    times 16 db 0x00            ;  8-15: Reserved
-
-; Default CGA-style palette for restoring on exit
-default_palette:
-    db 0x00, 0x00               ;  0: Black
-    db 0x00, 0x07               ;  1: Blue
-    db 0x00, 0x70               ;  2: Green
-    db 0x00, 0x77               ;  3: Cyan
-    db 0x07, 0x00               ;  4: Red
-    db 0x07, 0x07               ;  5: Magenta
-    db 0x07, 0x40               ;  6: Brown
-    db 0x07, 0x77               ;  7: Light gray
-    db 0x03, 0x33               ;  8: Dark gray
-    db 0x03, 0x3F               ;  9: Light blue
-    db 0x03, 0xF3               ; 10: Light green
-    db 0x03, 0xFF               ; 11: Light cyan
-    db 0x0F, 0x33               ; 12: Light red
-    db 0x0F, 0x3F               ; 13: Light magenta
-    db 0x0F, 0xF3               ; 14: Yellow
-    db 0x0F, 0xFF               ; 15: White
+; ============================================================================
+; C64-Inspired Color Palette
+; Approximating the iconic C64 colors using V6355D's RGB 3-3-3 format
+; Format: Red (byte 1), Green<<4 | Blue (byte 2)
+;
+; The C64 palette is distinctive for its earthy browns, muted purples,
+; and that iconic light blue. We map these as closely as possible.
+; ============================================================================
+c64_palette:
+    ; Index 0-7: Dark/muted colors
+    db 0x00, 0x00           ;  0: Black         (R=0, G=0, B=0)
+    db 0x07, 0x77           ;  1: White         (R=7, G=7, B=7)
+    db 0x05, 0x11           ;  2: Red           (R=5, G=1, B=1)
+    db 0x02, 0x66           ;  3: Cyan          (R=2, G=6, B=6)
+    db 0x05, 0x25           ;  4: Purple        (R=5, G=2, B=5)
+    db 0x02, 0x51           ;  5: Green         (R=2, G=5, B=1)
+    db 0x01, 0x14           ;  6: Blue          (R=1, G=1, B=4)
+    db 0x06, 0x62           ;  7: Yellow        (R=6, G=6, B=2)
+    
+    ; Index 8-15: Bright/light colors
+    db 0x05, 0x32           ;  8: Orange        (R=5, G=3, B=2)
+    db 0x03, 0x20           ;  9: Brown         (R=3, G=2, B=0)
+    db 0x06, 0x33           ; 10: Light Red     (R=6, G=3, B=3)
+    db 0x02, 0x22           ; 11: Dark Gray     (R=2, G=2, B=2)
+    db 0x04, 0x44           ; 12: Medium Gray   (R=4, G=4, B=4)
+    db 0x04, 0x73           ; 13: Light Green   (R=4, G=7, B=3)
+    db 0x03, 0x36           ; 14: Light Blue    (R=3, G=3, B=6)
+    db 0x06, 0x66           ; 15: Light Gray    (R=6, G=6, B=6)
 
 ; ============================================================================
 ; End of Program
