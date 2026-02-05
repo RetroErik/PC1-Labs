@@ -6,7 +6,7 @@ Educational demonstrations of raster bar techniques on the Olivetti PC1 with Yam
 - **Machine:** Olivetti PC1
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
 - **Video Controller:** Yamaha V6355D
-- **Video Mode:** CGA 160x200x16 (Hidden graphics mode)
+- **Video Mode:** CGA 160x200x16 (Hidden graphics mode) and ordinary CGA modes - because changing color per scanline.
 
 ## Overview
 
@@ -49,6 +49,21 @@ The V6355D provides two main mechanisms:
 ### `rbars3.asm - rbars7.asm` - Various Techniques
 Different variations and optimizations of PORT_COLOR approach.
 
+### `rbars4.asm` - PC1 Hidden Mode (160x200x16)
+**Technique:** PORT_COLOR in the PC1's hidden 160x200x16 mode
+- **Mode:** Hidden graphics mode 0x4A (Olivetti PC1 specific)
+- **Colors:** 16 palette colors via V6355D
+- **Feature:** Uses PC1-specific register unlocking (0x40 to PORT_REG_ADDR)
+- **Learning point:** PC1's hidden mode and V6355D-specific setup
+
+### `rbars4_CGA.asm` - Standard CGA Mode (320x200)
+**Technique:** PORT_COLOR in standard CGA mode 0x04
+- **Mode:** Standard CGA 320x200 graphics (works on any CGA system!)
+- **Colors:** 16 CGA color indices
+- **Key Finding:** Proves PORT_COLOR per-scanline changes work in standard CGA modes
+- **Portability:** This technique is universal to all CGA-compatible hardware
+- **Learning point:** Raster bars are not PC1-specific — they work on standard CGA
+
 ### Palette RAM Demos - MOVED
 **Palette RAM demonstrations have been moved to `05-scanline-palette/` folder**
 
@@ -65,6 +80,8 @@ These demos demonstrate per-scanline Palette RAM manipulation to display 512 col
 ```powershell
 nasm -f bin -o rbars1.com rbars1.asm
 nasm -f bin -o rbars2.com rbars2.asm
+nasm -f bin -o rbars4.com rbars4.asm
+nasm -f bin -o rbars4_CGA.com rbars4_CGA.asm
 nasm -f bin -o rbarsram.com rbarsram.asm
 # ... etc for rbars3-7
 ```
