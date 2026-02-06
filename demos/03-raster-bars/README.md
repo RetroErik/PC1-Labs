@@ -101,6 +101,23 @@ A:\rbarsram.com
 | **H** | Toggle HSYNC wait on/off (free-running vs synchronized) |
 | **ESC** | Exit to DOS |
 
+## Mode Compatibility
+
+The per-scanline color change technique works in **multiple CGA graphics modes** on the PC1:
+
+| Mode | Resolution | Colors | PORT_COLOR | Notes |
+|------|-----------|--------|-----------|-------|
+| **160×200×16** | 160×200 | 16 palette colors | ✅ Yes | PC1 hidden mode (0x4A) - rbars4.asm |
+| **320×200×4** | 320×200 | 4 colors (2 palettes) | ✅ Yes | Standard CGA mode (0x04) - rbars4_CGA.asm |
+| **640×200×2** | 640×200 | 2 colors (monochrome) | ✅ Likely | Standard CGA/EGA mode (0x06) - untested but should work |
+| **320×200×16** | 320×200 | 16 palette colors | ✅ Likely | Tandy/PC1 hidden mode - compatible timing with 320×200×4 |
+
+**Key insight:** The horizontal sync pulse timing is consistent across CGA modes. Per-scanline color changes via PORT_COLOR (or palette switching) should work in any CGA-compatible mode, as they depend on I/O port timing, not the video mode specifics.
+
+**Timing remains the same:** All CGA modes use the same display clock (14.31818 MHz pixel clock / 2), so the ~509 cycles per scanline figure holds for all modes.
+
+---
+
 ## Technical Details
 
 ### Video Ports (Yamaha V6355D)
