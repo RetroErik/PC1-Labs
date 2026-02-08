@@ -58,13 +58,13 @@
 ; Constants
 ; ============================================================================
 
-; Yamaha V6355D I/O Ports
-PORT_MODE       equ 0xD8        ; Mode Control Register
-PORT_STATUS     equ 0xDA        ; Status Register
+; CGA-compatible I/O Ports (works on V6355D and standard CGA)
+PORT_MODE       equ 0x3D8       ; Mode Control Register
+PORT_STATUS     equ 0x3DA       ; Status Register
                                 ; Bit 0: HSYNC (1 = in horizontal retrace)
                                 ; Bit 3: VBLANK (1 = in vertical retrace)
-PORT_PAL_ADDR   equ 0xDD        ; Palette register address
-PORT_PAL_DATA   equ 0xDE        ; Palette register data
+PORT_PAL_ADDR   equ 0x3DD       ; Palette register address
+PORT_PAL_DATA   equ 0x3DE       ; Palette register data
 
 ; Video Memory
 VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment

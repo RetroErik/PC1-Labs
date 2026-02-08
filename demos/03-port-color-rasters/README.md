@@ -7,6 +7,7 @@ Educational demonstrations of raster bar techniques on the Olivetti PC1 with Yam
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
 - **Video Controller:** Yamaha V6355D
 - **Video Mode:** CGA 160x200x16 (Hidden graphics mode) and ordinary CGA modes - because changing color per scanline.
+- **Compatibility note:** If you change the demo resolution from 160x200 to a standard CGA mode (for example 320x200 mode 0x04) and avoid palette RAM writes, the code will run on any IBM PC with CGA.
 
 ## Overview
 
@@ -14,13 +15,13 @@ Raster bars are a classic demo scene effect where different colors appear on dif
 
 The V6355D provides two main mechanisms:
 
-### 1. **PORT_COLOR (0xD9)** - Fast but limited
+### 1. **PORT_COLOR (0x3D9)** - Fast but limited
 - 1 OUT instruction per scanline
 - Pick from 16 palette colors
 - Only affects background/overscan, not drawn graphics
 - Fast: limited by CPU time, not I/O
 
-### 2. **Palette RAM (0xDD/0xDE)** - Slower but powerful
+### 2. **Palette RAM (0x3DD/0x3DE)** - Slower but powerful
 - 3 OUT instructions per scanline (select + R + G|B)
 - Direct RGB control: 512 colors (8×8×8 RGB)
 - Affects all graphics using that palette index
@@ -65,14 +66,14 @@ Different variations and optimizations of PORT_COLOR approach.
 - **Learning point:** Raster bars are not PC1-specific — they work on standard CGA
 
 ### Palette RAM Demos - MOVED
-**Palette RAM demonstrations have been moved to `05-scanline-palette/` folder**
+**Palette RAM demonstrations have been moved to `05-palette-ram-rasters/` folder**
 
 These demos demonstrate per-scanline Palette RAM manipulation to display 512 colors:
 - `palram1.asm` - Basic version (417 lines, single gradient)
 - `palram2.asm` - Intermediate (622 lines, 6 palette modes)
 - `palram3.asm` - Advanced/Reference (925 lines, H/V SYNC controls)
 
-**See [../05-scanline-palette/README.md](../05-scanline-palette/README.md) for details.**
+**See [../05-palette-ram-rasters/README.md](../05-palette-ram-rasters/README.md) for details.**
 
 ## Compilation & Testing
 
@@ -122,13 +123,15 @@ The per-scanline color change technique works in **multiple CGA graphics modes**
 
 ### Video Ports (Yamaha V6355D)
 
+The V6355D responds to both standard CGA 0x3D* ports and the 0xD* aliases. This README uses 0x3D* for CGA compatibility; 0xD* is equivalent on the PC1.
+
 | Port | Name | Purpose |
 |------|------|---------|
-| 0xD8 | MODE | Video mode control (0x4A = 160×200×16 graphics) |
-| 0xD9 | COLOR | Set overscan/background color (bits 0-3 = palette entry) |
-| 0xDA | STATUS | Bit 0 = HSYNC (1=in retrace), Bit 3 = VBLANK |
-| 0xDD | PAL_ADDR | Palette address (0x40-0x4F = palette entries 0-15) |
-| 0xDE | PAL_DATA | Palette data (write R, then G\|B) |
+| 0x3D8 | MODE | Video mode control (0x4A = 160×200×16 graphics) |
+| 0x3D9 | COLOR | Set overscan/background color (bits 0-3 = palette entry) |
+| 0x3DA | STATUS | Bit 0 = HSYNC (1=in retrace), Bit 3 = VBLANK |
+| 0x3DD | PAL_ADDR | Palette address (0x40-0x4F = palette entries 0-15) |
+| 0x3DE | PAL_DATA | Palette data (write R, then G\|B) |
 
 ### Timing Constraints
 
@@ -144,7 +147,7 @@ At 8 MHz (NEC V40), per scanline:
 1. **Start with rbars1** - Understand the basic PORT_COLOR technique and why tearing happens
 2. **Try rbars2** - See how pre-computing eliminates tearing
 3. **Explore rbars3-7** - Various optimizations and variations
-4. **Advanced:** See `05-scanline-palette/` folder for Palette RAM technique demos
+4. **Advanced:** See `05-palette-ram-rasters/` folder for Palette RAM technique demos
 
 ## Educational Notes
 
@@ -157,7 +160,7 @@ At 8 MHz (NEC V40), per scanline:
 ### Key Insights
 - **Timing matters:** Hardware-level effects require cycle-accurate timing
 - **Tearing is real:** Color changes must happen during retrace, not active display
-- **Trade-offs:** PORT_COLOR is fast but limited; see `05-scanline-palette/` for more powerful techniques
+- **Trade-offs:** PORT_COLOR is fast but limited; see `05-palette-ram-rasters/` for more powerful techniques
 - **Creativity:** Limited hardware sparked incredible creative effects in the demo scene
 
 ## References

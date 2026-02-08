@@ -79,10 +79,10 @@ SCREEN_HEIGHT   equ 200         ; 200 scanlines
 SCREEN_WIDTH    equ 160         ; 160 pixels wide
 BYTES_PER_LINE  equ SCREEN_WIDTH / 2  ; 2 pixels per byte
 
-PORT_MODE       equ 0xD8        ; Video mode register
-PORT_STATUS     equ 0xDA        ; Status register (bit 0 = HSYNC, bit 3 = VBLANK)
-PORT_PAL_ADDR   equ 0xDD        ; Palette address register
-PORT_PAL_DATA   equ 0xDE        ; Palette data register
+PORT_MODE       equ 0x3D8       ; Video mode register
+PORT_STATUS     equ 0x3DA       ; Status register (bit 0 = HSYNC, bit 3 = VBLANK)
+PORT_PAL_ADDR   equ 0x3DD       ; Palette address register
+PORT_PAL_DATA   equ 0x3DE       ; Palette data register
 
 MAX_WRITES      equ 20          ; Maximum writes per scanline to test
 DEFAULT_WRITES  equ 8           ; Start with 8 writes per scanline

@@ -62,11 +62,11 @@
 VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment (not B800!)
 
 ; --- Yamaha V6355D I/O Ports ---
-PORT_REG_ADDR   equ 0xDD        ; Register Bank Address Port (select register)
-PORT_REG_DATA   equ 0xDE        ; Register Bank Data Port (read/write)
-PORT_MODE       equ 0xD8        ; Mode Control Register
-PORT_COLOR      equ 0xD9        ; Color Select Register
-PORT_STATUS     equ 0xDA        ; Status Register (bit 0=HSYNC, bit 3=VBLANK)
+PORT_REG_ADDR   equ 0x3DD       ; Register Bank Address Port (select register)
+PORT_REG_DATA   equ 0x3DE       ; Register Bank Data Port (read/write)
+PORT_MODE       equ 0x3D8       ; Mode Control Register
+PORT_COLOR      equ 0x3D9       ; Color Select Register
+PORT_STATUS     equ 0x3DA       ; Status Register (bit 0=HSYNC, bit 3=VBLANK)
                                 ; Bit 0: Display enable (1 = retrace/blanking)
                                 ; Bit 3: Vertical retrace (1 = in VBLANK)
 
@@ -261,7 +261,7 @@ main:
 ;   2. Calculate the color for this scanline
 ;   3. Write the color to the border/background register
 ;
-; The V6355D's status port (0xDA) provides timing information:
+; The V6355D's status port (0x3DA) provides timing information:
 ;   Bit 0 = 1: Horizontal or vertical retrace active
 ;   Bit 3 = 1: Vertical retrace active
 ;
@@ -444,17 +444,17 @@ wait_vblank:
 ;   - Uses BIOS to set CGA 320x200 mode (for CRTC timing)
 ;   - Configures register 0x67 for 8-bit bus mode
 ;   - Configures register 0x65 for 200 lines, PAL timing
-;   - Sets port 0xD8 to 0x4A to enable 16-color mode
+;   - Sets port 0x3D8 to 0x4A to enable 16-color mode
 ;
 ; NOTE: Registers 0x65 and 0x67 are NOT strictly required for graphics mode.
-; The minimal requirement is just: out 0xD8, 0x4A
+; The minimal requirement is just: out 0x3D8, 0x4A
 ; These extra registers are removed from version 1c onwards.
 ; ============================================================================
 enable_graphics_mode:
     push ax
     push dx
     
-    ; Port 0xD8: Mode Control Register
+    ; Port 0x3D8: Mode Control Register
     ; 0x4A = Enable 16-color mode (bit 6=1), graphics mode (bit 1=1),
     ;        video enable (bit 3=1)
     mov al, 0x4A

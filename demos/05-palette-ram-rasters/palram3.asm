@@ -85,10 +85,10 @@
 ; These I/O ports control the Yamaha V6355D video controller.
 ; They are similar to CGA ports but with extended palette features.
 
-PORT_MODE       equ 0xD8    ; Video mode register (write 0x4A for 160x200x16)
-PORT_STATUS     equ 0xDA    ; Status register (bit 0=HSYNC, bit 3=VSYNC)
-PORT_PAL_ADDR   equ 0xDD    ; Palette address register (0x40-0x4F for colors 0-15)
-PORT_PAL_DATA   equ 0xDE    ; Palette data register (write R, then G<<4|B)
+PORT_MODE       equ 0x3D8   ; Video mode register (write 0x4A for 160x200x16)
+PORT_STATUS     equ 0x3DA   ; Status register (bit 0=HSYNC, bit 3=VSYNC)
+PORT_PAL_ADDR   equ 0x3DD   ; Palette address register (0x40-0x4F for colors 0-15)
+PORT_PAL_DATA   equ 0x3DE   ; Palette data register (write R, then G<<4|B)
 
 ; ============================================================================
 ; MEMORY AND SCREEN CONSTANTS

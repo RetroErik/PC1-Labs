@@ -17,7 +17,7 @@
 ; Writing 0x40 to PORT_REG_ADDR UNLOCKS full-width mode again.
 ;
 ; This demo works full-width because:
-;   1. set_palette writes 0x40 to port 0xDD to start palette write
+;   1. set_palette writes 0x40 to port 0x3DD to start palette write
 ;   2. We do NOT write 0x80 at the end (which would lock it!)
 ;
 ; The old code wrote 0x80 after palette setup thinking it was "closing"

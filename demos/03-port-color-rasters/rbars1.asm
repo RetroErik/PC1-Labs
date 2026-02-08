@@ -11,7 +11,7 @@
 ; WHAT WE ARE TESTING:
 ; ============================================================================
 ;
-; PORT_COLOR (0xD9):
+; PORT_COLOR (0x3D9):
 ;   - Sets the BORDER color only (not the active 160x200 screen area)
 ;   - Takes a value 0-15, selecting one of the 16 palette entries
 ;   - Each palette entry can be any color from the 512-color RGB palette
@@ -34,7 +34,7 @@
 ;
 ; ** MAJOR DISCOVERY **
 ; PORT_COLOR affects the ENTIRE scanline, but ONLY if you first "unlock" it
-; by writing 0x40 to port 0xDD (PORT_REG_ADDR).
+; by writing 0x40 to port 0x3DD (PORT_REG_ADDR).
 ;
 ; Without the 0x40 unlock: PORT_COLOR only affects the BORDER/OVERSCAN area!
 ; With the 0x40 unlock: PORT_COLOR affects the full scanline width!
@@ -62,9 +62,9 @@
 ; ============================================================================
 
 ; --- Yamaha V6355D I/O Ports ---
-PORT_MODE       equ 0xD8        ; Mode Control Register
-PORT_COLOR      equ 0xD9        ; Color Select Register (border/background)
-PORT_STATUS     equ 0xDA        ; Status Register (read-only)
+PORT_MODE       equ 0x3D8       ; Mode Control Register
+PORT_COLOR      equ 0x3D9       ; Color Select Register (border/background)
+PORT_STATUS     equ 0x3DA       ; Status Register (read-only)
                                 ; Bit 0: HSYNC (1 = in horizontal retrace)
                                 ; Bit 3: VBLANK (1 = in vertical retrace)
 
@@ -154,7 +154,7 @@ raster_loop:
 ; enable_graphics_mode - Enable 160x200x16 hidden mode
 ;
 ; The Yamaha V6355D has a hidden 16-color graphics mode.
-; Writing 0x4A to port 0xD8 enables it.
+; Writing 0x4A to port 0x3D8 enables it.
 ; ============================================================================
 enable_graphics_mode:
     mov al, 0x4A

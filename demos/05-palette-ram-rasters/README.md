@@ -3,16 +3,17 @@
 Educational demonstrations of per-scanline **Palette RAM manipulation** on the Olivetti PC1 with Yamaha V6355D video controller.
 
 The plan is to test 4 method. We have tested method 1 and 2
-   1. PORT_COLOR (0xD9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-raster-bars
-   2. Palette RAM (0xDD/0xDE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-scanline-palette
- **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates.
- **  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline.
+  1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-port-color-rasters. Works on standard CGA.
+  2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-palette-ram-rasters. V6355D-only.
+ **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates. Works on standard CGA as a timing method.
+ **  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline. Works on standard CGA.
 
 ## Hardware Target
 - **Machine:** Olivetti Prodest PC1
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
 - **Video Controller:** Yamaha V6355D
-- **Video Mode:** CGA 160x200x16 (Hidden graphics mode) But also ordinary CGA modes, but using the Palette from the V6355D
+- **Video Mode:** CGA 160x200x16 (Hidden graphics mode)
+- **Compatibility note:** If you change the demo resolution from 160x200 to a standard CGA mode (for example 320x200 mode 0x04) and avoid palette RAM writes, the code will run on any IBM PC with CGA.
 
 ## Overview
 
@@ -131,7 +132,7 @@ The key insight: Instead of being limited to 16 simultaneous colors (standard CG
 
 The V6355D offers two raster bar techniques:
 
-| Feature | PORT_COLOR (0xD9) | Palette RAM (0xDD/0xDE) |
+| Feature | PORT_COLOR (0x3D9) | Palette RAM (0x3DD/0x3DE) |
 |---------|------------------|------------------------|
 | Speed | 1 OUT per scanline | 3 OUTs per scanline |
 | Colors | 16 palette colors | 512 RGB colors |
@@ -145,9 +146,9 @@ The V6355D offers two raster bar techniques:
 
 ### Write Sequence (3 OUTs)
 ```
-1. OUT 0xDD, 0x40       ; Select palette entry 0 (0x40-0x4F for entries 0-15)
-2. OUT 0xDE, R          ; Red intensity (bits 0-2 = 0-7)
-3. OUT 0xDE, G|B        ; Green (bits 4-6) | Blue (bits 0-2)
+1. OUT 0x3DD, 0x40       ; Select palette entry 0 (0x40-0x4F for entries 0-15)
+2. OUT 0x3DE, R          ; Red intensity (bits 0-2 = 0-7)
+3. OUT 0x3DE, G|B        ; Green (bits 4-6) | Blue (bits 0-2)
 ```
 
 ### RGB333 Format
@@ -215,7 +216,7 @@ A:\palram5.com
 
 ### Advanced Timing Techniques
 **Polling Method (used in these demos):**
-- Read status port (0xDA) to detect HSYNC transitions
+- Read status port (0x3DA) to detect HSYNC transitions
 - Simple to implement, works on V6355D
 - 4-8 pixel horizontal jitter due to polling loop latency
 - Good enough for most effects
@@ -238,13 +239,15 @@ Each system had different constraints, so each developed unique techniques!
 
 ## Video Ports Reference
 
+The V6355D responds to both standard CGA 0x3D* ports and the 0xD* aliases. This README uses 0x3D* for CGA compatibility; 0xD* is equivalent on the PC1.
+
 | Port | Name | Purpose |
 |------|------|---------|
-| 0xD8 | MODE | Video mode control (0x4A = 160×200×16 graphics) |
-| 0xD9 | COLOR | Set background color (bits 0-3 = palette entry) |
-| 0xDA | STATUS | Bit 0 = HSYNC (1=in retrace), Bit 3 = VBLANK |
-| 0xDD | PAL_ADDR | Palette address (0x40-0x4F for entries 0-15) |
-| 0xDE | PAL_DATA | Palette data (write R, then G\|B) |
+| 0x3D8 | MODE | Video mode control (0x4A = 160×200×16 graphics) |
+| 0x3D9 | COLOR | Set background color (bits 0-3 = palette entry) |
+| 0x3DA | STATUS | Bit 0 = HSYNC (1=in retrace), Bit 3 = VBLANK |
+| 0x3DD | PAL_ADDR | Palette address (0x40-0x4F for entries 0-15) |
+| 0x3DE | PAL_DATA | Palette data (write R, then G\|B) |
 
 ## References
 

@@ -1,6 +1,6 @@
 ; ============================================================================
-; RBARS1b.ASM - Raster Bar Demo v1b: Modulo Banding (Full-Width)
-; Thick scrolling color bands using division-based color calculation
+; RBARS1c.ASM - Raster Bar Demo v1c: Multiple Staggered Bars
+; Five gradient bars scrolling with even spacing
 ; Written for NASM - NEC V40 (80186 compatible) @ 8 MHz
 ; By Retro Erik - 2026
 ;
@@ -8,14 +8,13 @@
 ; Video Mode: CGA 160x200x16 (Hidden mode)
 ;
 ; TECHNIQUE:
-;   - Per-scanline color changes via PORT_COLOR register
-;   - Modulo banding: color = (scanline + offset) / 12 AND 0x0F
-;   - Creates thick 12-scanline bands that scroll smoothly
-;   - Uses edge detection for clean top/bottom borders
+;   - Per-scanline color via PORT_COLOR
+;   - Modulo spacing creates multiple evenly-spaced bars
+;   - Distance-based gradient: bright center, dark edges
 ;
-; WHY FULL-WIDTH WORKS:
-;   This demo doesn't write 0x80 to port 0xDD, so the default full-width
-;   PORT_COLOR mode is preserved. See rbars1.asm for the full discovery.
+; NOTE: Uses 0x80 in enable_graphics_mode which locks to border-only.
+; For full-width, remove the 0x80 write or add 0x40 after.
+; See rbars1.asm for the full 0x80/0x40 discovery.
 ;
 ; Controls:
 ;   Any key - Exit to DOS
@@ -32,12 +31,11 @@
 VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment (not B800!)
 
 ; --- Yamaha V6355D I/O Ports ---
-; Base address is 0x3D0 on PC1, but 0xD0-0xDF also works as alias
-PORT_REG_ADDR   equ 0xDD        ; Register Bank Address Port (select register)
-PORT_REG_DATA   equ 0xDE        ; Register Bank Data Port (read/write)
-PORT_MODE       equ 0xD8        ; Mode Control Register
-PORT_COLOR      equ 0xD9        ; Color Select Register (border color, bits 0-3)
-PORT_STATUS     equ 0xDA        ; Status Register (read-only)
+PORT_REG_ADDR   equ 0x3DD       ; Register Bank Address Port (0x40=unlock, 0x80=lock)
+PORT_REG_DATA   equ 0x3DE        ; Register Bank Data Port (palette data)
+PORT_MODE       equ 0x3D8       ; Mode Control Register
+PORT_COLOR      equ 0x3D9       ; Color Select Register (full-width when unlocked)
+PORT_STATUS     equ 0x3DA       ; Status Register (read-only)
                                 ; Bit 0: Display enable (1 = retrace/blanking)
                                 ; Bit 3: Vertical retrace (1 = in VBLANK)
 
@@ -46,9 +44,13 @@ SCREEN_HEIGHT   equ 200         ; Vertical resolution in pixels/scanlines
 BYTES_PER_ROW   equ 80          ; 160 pixels / 2 pixels per byte
 
 ; --- Raster Bar Parameters ---
-; A raster bar is a band of colored scanlines that creates a gradient effect
-BAR_HEIGHT      equ 16          ; Height of the raster bar in scanlines
+; A raster bar is a band of colored scanlines with a gradient effect
+; Bright center fading to dark edges - creates a "glowing bar" look
+BAR_HEIGHT      equ 24          ; Total height of one bar in scanlines
+BAR_SPACING     equ 64          ; Distance between bar centers (power of 2 for speed!)
+BAR_MASK        equ 63          ; BAR_SPACING - 1 for fast modulo
 BAR_SPEED       equ 1           ; Movement speed (scanlines per frame)
+NUM_BARS        equ 3           ; Number of bars on screen (200/64)
 
 ; --- C64-inspired Color Palette (mapped to V6355D RGB values) ---
 ; The V6355D uses 3 bits per color channel (RGB 3-3-3, 512 colors)
@@ -65,15 +67,10 @@ BAR_SPEED       equ 1           ; Movement speed (scanlines per frame)
 ; Main Program Entry Point
 ; ============================================================================
 main:
-    ; Save original video mode
-    mov ah, 0x0F
-    int 0x10
-    mov [orig_video_mode], al
-    
-    ; Enable the hidden 160x200x16 graphics mode
+    ; Switch to graphics mode (required for full-width rasters)
     call enable_graphics_mode
     
-    ; Clear screen to black
+    ; Clear screen to black (video RAM has garbage)
     call clear_screen
     
     ; Initialize raster bar position
@@ -123,37 +120,33 @@ main:
     int 0x16
     
 ; ============================================================================
-; Exit - Restore text mode and return to DOS
+; Exit - Return to DOS (don't reset video - preserve PERITEL settings)
 ; ============================================================================
 .exit:
-    ; Disable hidden graphics mode
-    call disable_graphics_mode
-    
-    ; Restore original video mode
-    mov ah, 0x00
-    mov al, [orig_video_mode]
-    int 0x10
-    
-    ; Clear screen
-    mov ah, 0x06
-    mov al, 0
-    mov bh, 0x07            ; Light gray on black
-    xor cx, cx
-    mov dx, 0x184F
-    int 0x10
-    
-    ; Exit to DOS
+    ; Just exit to DOS - COMMAND.COM will restore the screen
+   
     mov ax, 0003h      ; BIOS video: set mode 03h (80x25 text)
     int 10h
-
-    mov ax, 0x4C00
+   
+    mov ax, 0x4C00     ; DOS: terminate, return code 0
     int 0x21
 
 ; ============================================================================
-; render_raster_bars - Render raster bars on left/right borders
+; render_raster_bars - Render smooth gradient raster bars
 ;
-; Animated version: Bars scroll down the screen smoothly
-; Uses bar_y_pos as offset to create scrolling effect
+; Creates "real" raster bars with:
+;   - Bright center (white/color 15)
+;   - Smooth gradient fading to dark edges
+;   - Multiple bars scrolling down the screen
+;
+; KNOWN ISSUE - TEARING:
+;   There is visible tearing because we calculate the color AFTER detecting
+;   the HSYNC edge. The gradient calculation takes ~15 instructions, which
+;   delays the color output into the visible portion of the scanline.
+;
+;   To fix: Pre-compute all 200 colors into a table during VBLANK, then
+;   the scanline loop becomes just: wait → lodsb → out (3 operations).
+;   See rbars2.asm for an example of this pre-computed approach.
 ; ============================================================================
 render_raster_bars:
     push ax
@@ -164,35 +157,54 @@ render_raster_bars:
     cli                     ; Disable interrupts for stable timing
     
     xor bx, bx              ; BX = scanline counter (0-199)
+    mov cl, [bar_y_pos]     ; CL = scroll offset (keep in register)
     mov dx, PORT_STATUS
     
 .scanline_loop:
-    ; Step 1: Wait for display period (bit 0 = 0)
-.wait_display:
+    ; Wait for HSYNC 0→1 edge (clean timing, no tearing)
+    ; Step 1: Wait for bit 0 = 0 (in display period)
+.wait_low:
     in al, dx
     test al, 0x01
-    jnz .wait_display
+    jnz .wait_low
     
-    ; Step 2: Wait for retrace to start (bit 0 = 1)
-.wait_retrace:
+    ; Step 2: Wait for bit 0 = 1 (HSYNC started)
+.wait_high:
     in al, dx
     test al, 0x01
-    jz .wait_retrace
+    jz .wait_high
     
-    ; Step 3: Calculate color with scroll offset
-    ; color = ((scanline + bar_y_pos) / 12) AND 15
-    ; This creates 12-scanline bands that scroll down
-    mov ax, bx              ; AX = current scanline
-    add al, [bar_y_pos]     ; Add scroll offset
-    adc ah, 0               ; Handle overflow
-    mov cl, 12              ; Thinner bands = more bars visible
-    div cl                  ; AL = (scanline + offset) / 12
-    and al, 0x0F            ; Keep in range 0-15
+    ; Step 3: Calculate color using fast gradient
+    ; position = (scanline + offset) AND BAR_MASK  (0 to 31)
+    mov ax, bx
+    add al, cl              ; Add scroll offset
+    and al, BAR_MASK        ; Fast modulo! (0-31)
     
-    ; Step 4: Output color
+    ; Calculate distance from bar center (center is at BAR_SPACING/2 = 32)
+    ; distance = |position - 32|
+    sub al, BAR_SPACING/2   ; AL = position - 32 (signed: -32 to +31)
+    jns .positive
+    neg al                  ; AL = |distance| (0 to 32)
+.positive:
+    
+    ; Create gradient: if distance < BAR_HEIGHT/2 (12), we're inside bar
+    cmp al, BAR_HEIGHT/2
+    jae .outside_bar
+    
+    ; Inside bar - gradient from center (15) to edge (3)
+    ; color = 15 - distance (original formula)
+    mov ah, 15
+    sub ah, al              ; color = 15 - distance
+    mov al, ah
+    jmp .output_color
+    
+.outside_bar:
+    xor al, al              ; Black outside bar
+    
+.output_color:
     mov dx, PORT_COLOR
     out dx, al
-    mov dx, PORT_STATUS     ; Restore DX for next iteration
+    mov dx, PORT_STATUS
     
     ; Next scanline
     inc bx
@@ -331,24 +343,18 @@ wait_vblank:
 ; ============================================================================
 ; enable_graphics_mode - Enable Olivetti PC1 hidden 160x200x16 mode
 ;
-; Configures the Yamaha V6355D for the hidden graphics mode:
-;   - Sets port 0xD8 to 0x4A to enable 16-color mode
-;
-; NOTE: Registers 0x65 and 0x67 are NOT strictly required for graphics mode.
-; The minimal requirement is just: out 0xD8, 0x4A
-; These extra registers are removed from version 1c onwards.
+; Uses 0x40 to unlock full-width PORT_COLOR mode.
 ; ============================================================================
 enable_graphics_mode:
     push ax
     push dx
     
-    ; NOTE: We skip BIOS and all V6355D register writes to preserve
-    ; PERITEL.COM's settings! User can PERITEL.COM first to adjust horizontal position.
-    ; 
-    ; IMPORTANT: Do NOT touch registers via 0xDD/0xDE at all!
-    ; Any write to port 0xDD might reset things.
+    ; Unlock full-width PORT_COLOR mode (0x40 = unlock, 0x80 = lock)
+    mov al, 0x40
+    out PORT_REG_ADDR, al
+    jmp short $+2
     
-    ; Port 0xD8: Mode Control Register
+    ; Port 0x3D8: Mode Control Register
     ; 0x4A = Enable 16-color mode (bit 6=1), graphics mode (bit 1=1),
     ;        video enable (bit 3=1)
     mov al, 0x4A
@@ -370,7 +376,8 @@ disable_graphics_mode:
     push ax
     push dx
     
-    ; Reset mode control to text mode (just reverse of 0x4A)
+    ; Do NOT reset register 0x67 - preserve PERITEL's horizontal position!
+    ; Just reset mode control to text mode
     mov al, 0x28
     out PORT_MODE, al
     jmp short $+2
@@ -436,7 +443,8 @@ set_c64_palette:
     jmp short $+2
     loop .pal_loop
     
-    ; Disable palette write mode
+    ; WARNING: Writing 0x80 here locks PORT_COLOR to border-only!
+    ; Comment out for full-width bars, or write 0x40 again after.
     mov al, 0x80
     out PORT_REG_ADDR, al
     jmp short $+2

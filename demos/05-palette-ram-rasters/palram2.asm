@@ -42,10 +42,10 @@
 ; Constants
 ; ============================================================================
 
-PORT_MODE       equ 0xD8
-PORT_STATUS     equ 0xDA
-PORT_PAL_ADDR   equ 0xDD
-PORT_PAL_DATA   equ 0xDE
+PORT_MODE       equ 0x3D8
+PORT_STATUS     equ 0x3DA
+PORT_PAL_ADDR   equ 0x3DD
+PORT_PAL_DATA   equ 0x3DE
 VIDEO_SEG       equ 0xB000
 SCREEN_HEIGHT   equ 200
 NUM_PALETTES    equ 7

@@ -1,12 +1,16 @@
 ; ============================================================================
-; PALRAM4.ASM - Scanline Palette Demo - During HSYNC - Clean for use with further experimentation
+; CGAFLIP1.ASM - CGA Palette Flip (Method 4)
 ; ============================================================================
 ;
-; EDUCATIONAL DEMONSTRATION: 200 Colors on Screen Simultaneously
+; EDUCATIONAL DEMONSTRATION: Per-Scanline CGA Palette Switching
 ;
-; This program demonstrates a classic "demo scene" technique: changing the
-; video palette during the horizontal blanking interval to display more
-; colors than the hardware normally allows.
+; This method writes to the CGA Mode Control register (0x3D8) during HBLANK to
+; flip between the two CGA palettes and intensity states per scanline. It is
+; a single OUT per line and works on standard CGA hardware.
+;
+; NOTE: This file is a starter template. Update the render path to write the
+; per-line 0x3D8 values that drive the palette flips as the implementation
+; evolves.
 ;
 ; Written for NASM assembler
 ; Target: Olivetti Prodest PC1 / M24 with Yamaha V6355D video controller
@@ -14,15 +18,15 @@
 ;
 ; By Retro Erik - 2026
 
-; The plan is to test 4 method. We have tested method 1 and 2
-;   1. PORT_COLOR (0xD9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-raster-bars
-;   2. Palette RAM (0xDD/0xDE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-scanline-palette
-; **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates.
+; ** The plan is to test 4 method. We have tested method 1 and 2
+;   1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-port-color-rasters
+;   2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). Tested in 05-palette-ram-rasters
+;   3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates.
 ; **  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline.
 ;
 ; DISTINGUISHES THIS VERSION:
-;   - H/V SYNC toggle experimentation (press H/V)
-;   - Detailed hardware documentation
+;   - Single OUT to 0x3D8 per scanline (palette/intensity flip)
+;   - Standard CGA-compatible technique
 ;
 ; ============================================================================
 ; HARDWARE BACKGROUND
@@ -82,10 +86,10 @@
 ; These I/O ports control the Yamaha V6355D video controller.
 ; They are similar to CGA ports but with extended palette features.
 
-PORT_MODE       equ 0xD8    ; Video mode register (write 0x4A for 160x200x16)
-PORT_STATUS     equ 0xDA    ; Status register (bit 0=HSYNC, bit 3=VSYNC)
-PORT_PAL_ADDR   equ 0xDD    ; Palette address register (0x40-0x4F for colors 0-15)
-PORT_PAL_DATA   equ 0xDE    ; Palette data register (write R, then G<<4|B)
+PORT_MODE       equ 0x3D8   ; Video mode register (write 0x4A for 160x200x16)
+PORT_STATUS     equ 0x3DA   ; Status register (bit 0=HSYNC, bit 3=VSYNC)
+PORT_PAL_ADDR   equ 0x3DD   ; Palette address register (0x40-0x4F for colors 0-15)
+PORT_PAL_DATA   equ 0x3DE   ; Palette data register (write R, then G<<4|B)
 
 ; ============================================================================
 ; MEMORY AND SCREEN CONSTANTS

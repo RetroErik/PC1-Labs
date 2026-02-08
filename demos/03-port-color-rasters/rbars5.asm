@@ -14,7 +14,7 @@
 ;   - Compare to rbars1c which calculates gradient during scanline (causes tearing)
 ;
 ; WHY FULL-WIDTH WORKS:
-;   Writing 0x40 to port 0xDD unlocks full-width PORT_COLOR mode.
+;   Writing 0x40 to port 0x3DD unlocks full-width PORT_COLOR mode.
 ;   Default after boot is unlocked; 0x80 would lock to border-only.
 ;   See rbars1.asm for the full discovery story.
 ;
@@ -35,11 +35,11 @@
 VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment
 
 ; Yamaha V6355D I/O Ports
-PORT_REG_ADDR   equ 0xDD        ; Register address port (0x40=unlock, 0x80=lock)
-PORT_REG_DATA   equ 0xDE        ; Register data port
-PORT_MODE       equ 0xD8        ; Mode control register
-PORT_COLOR      equ 0xD9        ; Color select (border/overscan color)
-PORT_STATUS     equ 0xDA        ; Status (bit 0=hsync, bit 3=vblank)
+PORT_REG_ADDR   equ 0x3DD       ; Register address port (0x40=unlock, 0x80=lock)
+PORT_REG_DATA   equ 0x3DE       ; Register data port
+PORT_MODE       equ 0x3D8       ; Mode control register
+PORT_COLOR      equ 0x3D9       ; Color select (border/overscan color)
+PORT_STATUS     equ 0x3DA       ; Status (bit 0=hsync, bit 3=vblank)
 
 ; Screen parameters
 SCREEN_HEIGHT   equ 200         ; Visible scanlines
