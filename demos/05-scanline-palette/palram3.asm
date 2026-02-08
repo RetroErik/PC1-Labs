@@ -1,5 +1,5 @@
 ; ============================================================================
-; PALRAM3.ASM - Scanline Palette Demo (Advanced/Reference)
+; PALRAM3.ASM - Scanline Palette Demo (Advanced/Reference) During HSYNC
 ; ============================================================================
 ;
 ; EDUCATIONAL DEMONSTRATION: 200 Colors on Screen Simultaneously
@@ -41,6 +41,8 @@
 ; ============================================================================
 ; THE TECHNIQUE
 ; ============================================================================
+;
+; Palette updates are synchronized to the HSYNC edge each scanline.
 ;
 ; 1. Fill entire screen with color index 0 (appears black initially)
 ; 2. Wait for VBLANK (start of frame) to synchronize

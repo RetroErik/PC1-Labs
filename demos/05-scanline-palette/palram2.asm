@@ -1,5 +1,5 @@
 ; ============================================================================
-; PALRAM2.ASM - Scanline Palette Demo (Intermediate)
+; PALRAM2.ASM - Scanline Palette Demo (Intermediate) During HSYNC
 ; Demonstrates per-scanline palette RAM manipulation with multiple modes
 ; Written for NASM - NEC V40 (80186 compatible) @ 8 MHz
 ; By Retro Erik - 2026
@@ -16,6 +16,8 @@
 ; ============================================================================
 ; TECHNIQUE: Per-scanline palette RAM writes
 ; ============================================================================
+;
+; Palette updates are synchronized to the HSYNC edge each scanline.
 ;
 ; Each scanline, we change palette entry 0's RGB values (3 OUTs).
 ; Screen is filled with color index 0, so each line appears different.

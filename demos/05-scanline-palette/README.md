@@ -2,11 +2,17 @@
 
 Educational demonstrations of per-scanline **Palette RAM manipulation** on the Olivetti PC1 with Yamaha V6355D video controller.
 
+The plan is to test 4 method. We have tested method 1 and 2
+   1. PORT_COLOR (0xD9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-raster-bars
+   2. Palette RAM (0xDD/0xDE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-scanline-palette
+ **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates.
+ **  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline.
+
 ## Hardware Target
-- **Machine:** Olivetti PC1 / Prodest M24
+- **Machine:** Olivetti Prodest PC1
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
 - **Video Controller:** Yamaha V6355D
-- **Video Mode:** CGA 160x200x16 (Hidden graphics mode)
+- **Video Mode:** CGA 160x200x16 (Hidden graphics mode) But also ordinary CGA modes, but using the Palette from the V6355D
 
 ## Overview
 

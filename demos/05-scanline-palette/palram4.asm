@@ -1,5 +1,5 @@
 ; ============================================================================
-; PALRAM4.ASM - Scanline Palette Demo - Clean for use with further experimentation
+; PALRAM4.ASM - Scanline Palette Demo - During HSYNC - Clean for use with further experimentation
 ; ============================================================================
 ;
 ; EDUCATIONAL DEMONSTRATION: 200 Colors on Screen Simultaneously
@@ -13,6 +13,12 @@
 ; CPU: NEC V40 (80186 compatible) @ 8 MHz
 ;
 ; By Retro Erik - 2026
+
+; The plan is to test 4 method. We have tested method 1 and 2
+;   1. PORT_COLOR (0xD9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-raster-bars
+;   2. Palette RAM (0xDD/0xDE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-scanline-palette
+; **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates.
+; **  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline.
 ;
 ; DISTINGUISHES THIS VERSION:
 ;   - H/V SYNC toggle experimentation (press H/V)
@@ -38,6 +44,8 @@
 ; ============================================================================
 ; THE TECHNIQUE
 ; ============================================================================
+;
+; Palette updates are synchronized to the HSYNC edge each scanline.
 ;
 ; 1. Fill entire screen with color index 0 (appears black initially)
 ; 2. Wait for VBLANK (start of frame) to synchronize

@@ -1,5 +1,5 @@
 ; ============================================================================
-; PALRAM1.ASM - Scanline Palette Demo (Basic)
+; PALRAM1.ASM - Scanline Palette Demo (Basic) During HSYNC
 ; Static 200-color RGB gradient with optional animation
 ; Written for NASM - NEC V40 (80186 compatible) @ 8 MHz
 ; By Retro Erik - 2026
@@ -17,12 +17,14 @@
 ; TECHNIQUE: Palette RAM Manipulation
 ; ============================================================================
 ;
+; All palette updates are synchronized to the HSYNC edge per scanline.
+;
 ; Instead of PORT_COLOR (0xD9) which selects from 16 palette indices,
 ; this demo modifies the RGB values of palette entry 0 per-scanline.
 ; The screen is filled with color index 0, so changing its RGB values
 ; changes what that entire scanline looks like.
 ;
-; PALETTE WRITE SEQUENCE (3 OUTs per scanline):
+; PALETTE WRITE SEQUENCE (3 OUTs per scanline, timed to HSYNC edge):
 ;   1. OUT 0xDD, 0x40   ; Select palette entry 0
 ;   2. OUT 0xDE, R      ; Red intensity (bits 0-2, values 0-7)
 ;   3. OUT 0xDE, G|B    ; Green (bits 4-6) | Blue (bits 0-2)
@@ -34,8 +36,8 @@
 ;
 ; TIMING:
 ;   ~509 cycles per scanline @ 8MHz
-;   3 OUTs = ~30 cycles (plenty of headroom)
-;   9 OUTs (3 entries) = ~90 cycles (still fast)
+;   3 OUTs (1 entry) = ~30 cycles (proven stable)
+;   9 OUTs (3 entries) = ~90 cycles (tight but workable)
 ;   48 OUTs (all 16) = too slow, causes artifacts
 ;
 ; THIS IMPLEMENTATION:
@@ -171,7 +173,7 @@ build_gradient_table:
 ; render_scanlines - Output palette changes for all 200 visible scanlines
 ;
 ; For each scanline:
-;   1. Wait for HSYNC edge
+;   1. Wait for HSYNC low -> high edge
 ;   2. Write palette entry 0 with color from gradient table
 ;
 ; Uses [color_offset] to create animation effect
@@ -206,7 +208,7 @@ render_scanlines:
     jz .wait_high
     
     ; --- Output palette entry 0 with current color ---
-    ; This is the critical timing section: 3 OUTs as fast as possible
+    ; Critical timing: 1 entry = 3 OUTs, aligned to HSYNC edge
     mov al, 0x40            ; Select palette entry 0
     out PORT_PAL_ADDR, al
     
