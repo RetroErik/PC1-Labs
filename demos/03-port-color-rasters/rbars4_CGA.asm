@@ -37,6 +37,8 @@ PORT_COLOR      equ 0x3D9       ; CGA Color Select Register (border & background
 PORT_STATUS     equ 0x3DA       ; CGA Status Register (read-only)
                                 ; Bit 0: HSYNC (1 = horizontal blanking)
                                 ; Bit 3: VSYNC (1 = vertical blanking)
+PORT_REG_ADDR   equ 0x3DD       ; PC1-only (not used in CGA, defined for compatibility)
+PORT_REG_DATA   equ 0x3DE       ; PC1-only (not used in CGA, defined for compatibility)
 
 ; --- Screen Dimensions (CGA 320x200 mode) ---
 SCREEN_HEIGHT   equ 200         ; Vertical resolution in pixels/scanlines
