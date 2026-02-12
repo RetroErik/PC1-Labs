@@ -9,9 +9,13 @@
 ; scanline and perform the color update inside the ISR. This reduces jitter
 ; and frees CPU time between scanlines.
 ;
-; NOTE: This file is a starter template. Update the render path/ISR to perform
-; the specific per-scanline write you want (PORT_COLOR, palette RAM, or CGA
-; mode control) as the implementation evolves.
+; TECHNIQUE (inspired by 8088MPH / Area5150):
+;   1. Save the original IRQ0 vector and PIT settings
+;   2. Wait for VBLANK to synchronize with frame start
+;   3. Reprogram PIT Channel 0 to fire every ~76 ticks (~63.5µs = 1 scanline)
+;   4. Our custom ISR fires once per scanline and updates palette entry 0
+;   5. After 200 scanlines, we stop and wait for next frame
+;   6. On exit, restore original PIT and IRQ0 vector
 ;
 ; Written for NASM assembler
 ; Target: Olivetti Prodest PC1 / M24 with Yamaha V6355D video controller
@@ -19,61 +23,41 @@
 ;
 ; By Retro Erik - 2026
 
-; ** The plan is to test 4 method. We have tested method 1 and 2
-;   1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-port-color-rasters
-;   2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). Tested in 05-palette-ram-rasters
+; ** The plan is to test 4 methods. We have tested method 1 and 2
+;   1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices (fast, limited).
+;   2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors).
 ; **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates.
 ;   4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline.
 ;
-; DISTINGUISHES THIS VERSION:
-;   - PIT-based scanline timing (IRQ0) instead of HSYNC polling
-;   - Designed to explore jitter-free per-line scheduling
-;
 ; ============================================================================
-; HARDWARE BACKGROUND
+; PIT TIMING THEORY
 ; ============================================================================
 ;
-; The Yamaha V6355D is an unusual CGA-compatible video controller that has
-; a hidden 16-color mode at 160x200 resolution. Unlike standard CGA which
-; has fixed palettes, this chip has programmable RGB palette entries.
+; The Intel 8253/8254 PIT (Programmable Interval Timer) has 3 channels:
+;   - Channel 0: System timer (connected to IRQ0 via 8259 PIC)
+;   - Channel 1: DRAM refresh (not used here)
+;   - Channel 2: PC speaker
 ;
-; PALETTE FORMAT: RGB333 (3 bits per channel = 512 possible colors)
-;   - First byte:  R (bits 2-0 = red intensity 0-7)
-;   - Second byte: G<<4 | B (high nibble = green, low nibble = blue)
+; PIT Clock Frequency: 1.193182 MHz (derived from 14.31818 MHz / 12)
+; PIT Tick Duration: 1 / 1,193,182 = ~0.838 microseconds
 ;
-; The trick: CRT monitors draw the screen line-by-line, left to right.
-; Between each line there's a brief "horizontal blanking" period when the
-; electron beam returns to the left side. If we change the palette during
-; this blanking period, each scanline can have a different color!
+; CGA Horizontal Timing:
+;   - Horizontal frequency: 15.7 kHz (derived from 14.31818 MHz / 912)
+;   - Scanline duration: ~63.5 microseconds
+;   - PIT ticks per scanline: 63.5 / 0.838 ≈ 76 ticks
 ;
-; ============================================================================
-; THE TECHNIQUE
-; ============================================================================
+; By programming PIT Channel 0 with count=76, we get an IRQ0 every scanline!
 ;
-; Palette updates are synchronized to the HSYNC edge each scanline.
-;
-; 1. Fill entire screen with color index 0 (appears black initially)
-; 2. Wait for VBLANK (start of frame) to synchronize
-; 3. For each of the 200 scanlines:
-;    a. Wait for HSYNC (horizontal blanking period)
-;    b. Quickly write new RGB values to palette entry 0
-;    c. The scanline draws with this new color
-; 4. Result: 200 different colors on screen simultaneously!
-;
-; TIMING IS CRITICAL: We have only ~10 microseconds during HBLANK to write
-; 3 bytes to the palette. On the 8 MHz V40, that's about 80 cycles.
-; Our 3 OUT instructions take ~30 cycles - just enough time!
-;
-; NOTE: A full scanline is ~63.5 µs (~509 cycles), but only HBLANK (~80 cycles)
-; is safe for palette writes. Writing during the visible portion causes tearing.
-; For glitch-free results: max ~6-8 OUTs per scanline (during HBLANK only).
+; CAUTION: The PIT count must be tuned for exact hardware. Values 75-77 may
+; work better depending on PIT/CRT clock drift. Adjust PIT_SCANLINE_COUNT.
 ;
 ; ============================================================================
 ; CONTROLS
 ; ============================================================================
 ;
-;   H    : Toggle HSYNC waiting (see what happens without it!) - Default ON
-;   V    : Toggle VSYNC waiting (see the scrolling effect!) - Default ON
+;   +/-  : Adjust PIT count (fine-tune scanline timing)
+;   P    : Toggle PIT mode vs HSYNC polling mode
+;   V    : Toggle VSYNC waiting
 ;   ESC  : Exit to DOS
 ;
 ; ============================================================================
@@ -84,163 +68,179 @@
 ; ============================================================================
 ; HARDWARE PORT DEFINITIONS
 ; ============================================================================
-; These I/O ports control the Yamaha V6355D video controller.
-; They are similar to CGA ports but with extended palette features.
 
-PORT_MODE       equ 0x3D8   ; Video mode register (write 0x4A for 160x200x16)
+; --- Yamaha V6355D Video Controller ---
+; Note: 0xDx and 0x3Dx are aliases on PC1 - using short form for byte-immediate OUT
+PORT_MODE       equ 0xD8    ; Video mode register (write 0x4A for 160x200x16)
 PORT_STATUS     equ 0x3DA   ; Status register (bit 0=HSYNC, bit 3=VSYNC)
-PORT_PAL_ADDR   equ 0x3DD   ; Palette address register (0x40-0x4F for colors 0-15)
-PORT_PAL_DATA   equ 0x3DE   ; Palette data register (write R, then G<<4|B)
+PORT_PAL_ADDR   equ 0xDD    ; Palette address register (0x40 = entry 0)
+PORT_PAL_DATA   equ 0xDE    ; Palette data register (R, then G<<4|B)
+
+; --- Intel 8253/8254 PIT (Programmable Interval Timer) ---
+PIT_CH0_DATA    equ 0x40    ; Channel 0 data port (IRQ0 timer)
+PIT_CH2_DATA    equ 0x42    ; Channel 2 data port (PC speaker)
+PIT_COMMAND     equ 0x43    ; PIT command/mode register
+
+; --- Intel 8259 PIC (Programmable Interrupt Controller) ---
+PIC_CMD         equ 0x20    ; PIC command port (EOI goes here)
+PIC_DATA        equ 0x21    ; PIC data port (interrupt mask)
+
+; ============================================================================
+; TIMING CONSTANTS
+; ============================================================================
+
+; PIT count for one scanline (~63.5µs)
+; Formula: 1,193,182 Hz / 15,700 Hz ≈ 76
+; Adjust this value if raster bars drift up or down
+PIT_SCANLINE_COUNT  equ 76
 
 ; ============================================================================
 ; MEMORY AND SCREEN CONSTANTS
 ; ============================================================================
 
-VIDEO_SEG       equ 0xB000  ; Video memory segment (not 0xB800 like standard CGA!)
+VIDEO_SEG       equ 0xB000  ; Video memory segment
 SCREEN_HEIGHT   equ 200     ; Vertical resolution in pixels
-NUM_PALETTES    equ 1       ; Number of available palette modes
 
 ; ============================================================================
 ; MAIN PROGRAM ENTRY POINT
 ; ============================================================================
 main:
     ; -----------------------------------------------------------------------
+    ; Save DS for ISR access
+    ; -----------------------------------------------------------------------
+    mov ax, cs
+    mov [cs:isr_data_seg], ax   ; ISR needs to know our data segment
+    
+    ; -----------------------------------------------------------------------
     ; Initialize demo state
     ; -----------------------------------------------------------------------
-    ; Set default palette to #7 (Full Rainbow) and enable both sync modes
+    call load_current_palette   ; Copy rainbow palette to working buffer
+    mov word [pit_count], PIT_SCANLINE_COUNT
+    mov byte [pit_mode], 1      ; Start in PIT mode
+    mov byte [vsync_enabled], 1 ; VSYNC waiting ON
     
-    mov byte [current_palette], 0   ; Palette 1 (index 0) = Full Rainbow
-    mov byte [hsync_enabled], 1     ; HSYNC waiting ON (stable display)
-    mov byte [vsync_enabled], 1     ; VSYNC waiting ON (no tearing)
-    call load_current_palette       ; Copy palette data to working buffer
+    ; -----------------------------------------------------------------------
+    ; Save original IRQ0 vector (INT 08h)
+    ; -----------------------------------------------------------------------
+    xor ax, ax
+    mov es, ax                  ; ES = 0 (IVT segment)
+    mov ax, [es:0x08*4]         ; Offset of INT 08h
+    mov [old_irq0_off], ax
+    mov ax, [es:0x08*4+2]       ; Segment of INT 08h
+    mov [old_irq0_seg], ax
     
     ; -----------------------------------------------------------------------
     ; Set up the video mode
     ; -----------------------------------------------------------------------
-    ; Mode 0x4A is the "hidden" 160x200x16 mode with programmable palette.
-    ; This mode is not documented in standard CGA specs!
+    mov ax, 0x0004              ; BIOS mode 4 (CGA 320x200)
+    int 0x10                    ; Sets up CRTC timing
     
-    call enable_graphics_mode
+    mov al, 0x4A                ; Hidden 160x200x16 mode
+    out PORT_MODE, al
     
     ; -----------------------------------------------------------------------
     ; Clear screen to color 0
     ; -----------------------------------------------------------------------
-    ; We fill the entire screen with palette index 0. Since we'll be
-    ; changing palette entry 0's RGB values per-scanline, each line
-    ; will appear as a different color even though the video RAM
-    ; contains the same value everywhere!
-    
     call clear_screen
     
     ; -----------------------------------------------------------------------
     ; Main rendering loop
     ; -----------------------------------------------------------------------
-    ; This loop runs once per frame (~60 Hz). Each iteration:
-    ; 1. Waits for vertical blanking (if enabled)
-    ; 2. Renders all 200 scanlines with palette changes
-    ; 3. Checks for keyboard input
-    
 .main_loop:
     call wait_vblank            ; Synchronize to frame start
-    call render_scanlines       ; The magic happens here!
-    call check_keyboard         ; Handle user input
     
-    cmp al, 0xFF                ; Exit flag set?
-    jne .main_loop              ; No - continue looping
+    ; Check which mode we're in
+    cmp byte [pit_mode], 0
+    je .polling_mode
+    
+    ; PIT-timed rendering mode
+    call render_pit_frame
+    jmp .check_input
+    
+.polling_mode:
+    ; HSYNC polling mode (fallback, for comparison)
+    call render_polling_frame
+    
+.check_input:
+    call check_keyboard
+    cmp al, 0xFF
+    jne .main_loop
     
     ; -----------------------------------------------------------------------
     ; Clean up and exit to DOS
     ; -----------------------------------------------------------------------
-    ; Reset palette entry 0 to black before exiting
-    
-    mov al, 0x40                ; Select palette entry 0
+    mov al, 0x40
     out PORT_PAL_ADDR, al
-    xor al, al                  ; R = 0
+    xor al, al
     out PORT_PAL_DATA, al
-    out PORT_PAL_DATA, al       ; G<<4|B = 0 (black)
+    out PORT_PAL_DATA, al
     
-    mov ax, 0x0003              ; Set 80x25 text mode (standard BIOS call)
+    mov ax, 0x0003
     int 0x10
-    mov ax, 0x4C00              ; DOS exit with return code 0
+    mov ax, 0x4C00
     int 0x21
 
 ; ============================================================================
 ; check_keyboard - Handle keyboard input
 ; ============================================================================
-; Checks if a key was pressed and handles:
-;   - ESC: Returns 0xFF in AL to signal exit
-;   - 1-7: Switches palette mode
-;   - H: Toggles horizontal sync waiting
-;   - V: Toggles vertical sync waiting
-;
 ; Returns: AL = 0xFF if exit requested, else 0
 ; ============================================================================
 check_keyboard:
     push bx
     
-    ; -----------------------------------------------------------------------
-    ; Check if a key is available (non-blocking)
-    ; -----------------------------------------------------------------------
-    ; BIOS INT 16h, AH=01h: Check keyboard buffer
-    ; Returns: ZF=1 if no key, ZF=0 if key waiting
-    
     mov ah, 0x01
     int 0x16
-    jz .no_key                  ; No key pressed - return immediately
-    
-    ; -----------------------------------------------------------------------
-    ; Read the key (removes it from buffer)
-    ; -----------------------------------------------------------------------
-    ; BIOS INT 16h, AH=00h: Read key
-    ; Returns: AH = scan code, AL = ASCII character
+    jz .no_key
     
     mov ah, 0x00
     int 0x16
     
-    ; -----------------------------------------------------------------------
-    ; Check for ESC key (scan code 0x01)
-    ; -----------------------------------------------------------------------
+    ; ESC - Exit
     cmp ah, 0x01
     jne .not_esc
-    mov al, 0xFF                ; Set exit flag
+    mov al, 0xFF
     jmp .done
     
 .not_esc:
-    ; -----------------------------------------------------------------------
-    ; Check for H key - Toggle HSYNC waiting
-    ; -----------------------------------------------------------------------
-    ; When HSYNC is disabled, palette writes happen at random times
-    ; during scanline drawing, causing a "torn" or wavy pattern.
-    ; This demonstrates WHY synchronization is necessary!
-    
-    cmp al, 'h'
-    je .toggle_hsync
-    cmp al, 'H'
-    jne .not_h
-.toggle_hsync:
-    xor byte [hsync_enabled], 1 ; Toggle: 0->1 or 1->0
+    ; P - Toggle PIT/Polling mode
+    cmp al, 'p'
+    je .toggle_pit
+    cmp al, 'P'
+    jne .not_p
+.toggle_pit:
+    xor byte [pit_mode], 1
     jmp .no_key
     
-.not_h:
-    ; -----------------------------------------------------------------------
-    ; Check for V key - Toggle VSYNC waiting
-    ; -----------------------------------------------------------------------
-    ; When VSYNC is disabled, we don't wait for frame start before
-    ; rendering. The colors will "scroll" up or down the screen
-    ; because we're not synchronized to the display refresh.
-    
+.not_p:
+    ; V - Toggle VSYNC
     cmp al, 'v'
     je .toggle_vsync
     cmp al, 'V'
     jne .not_v
 .toggle_vsync:
-    xor byte [vsync_enabled], 1 ; Toggle: 0->1 or 1->0
+    xor byte [vsync_enabled], 1
     jmp .no_key
     
 .not_v:
-
+    ; + - Increase PIT count (slower = bars drift down)
+    cmp al, '+'
+    je .inc_pit
+    cmp al, '='
+    jne .not_plus
+.inc_pit:
+    inc word [pit_count]
+    jmp .no_key
+    
+.not_plus:
+    ; - - Decrease PIT count (faster = bars drift up)
+    cmp al, '-'
+    jne .no_key
+    cmp word [pit_count], 50
+    jbe .no_key               ; Prevent underflow below 50
+    dec word [pit_count]
+    
 .no_key:
-    xor al, al                  ; Return 0 (continue running)
+    xor al, al
     
 .done:
     pop bx
@@ -249,27 +249,13 @@ check_keyboard:
 ; ============================================================================
 ; load_current_palette - Copy palette data to working buffer
 ; ============================================================================
-; Copies 400 bytes (200 entries x 2 bytes each) from the selected
-; palette's data table to the working color_table buffer.
-;
-; Using a working buffer allows fast indexed access during rendering,
-; which is critical for meeting the tight HBLANK timing requirements.
-; ============================================================================
 load_current_palette:
     push ax
-    push bx
     push cx
     push si
     push di
     
-    ; Calculate pointer to selected palette data
-    mov al, [current_palette]
-    xor ah, ah
-    shl ax, 1                   ; Multiply by 2 (word-sized pointers)
-    mov bx, ax
-    mov si, [palette_table + bx] ; SI = pointer to palette data
-    
-    ; Copy 400 bytes to working buffer
+    mov si, pal_fullrainbow
     mov di, color_table
     mov cx, 400
 .copy:
@@ -282,100 +268,198 @@ load_current_palette:
     pop di
     pop si
     pop cx
+    pop ax
+    ret
+
+; ============================================================================
+; render_pit_frame - Render one frame using PIT interrupts
+; ============================================================================
+; This is the core PIT-timed rendering routine:
+;   1. Reset scanline counter
+;   2. Install our custom IRQ0 handler
+;   3. Program PIT for scanline timing
+;   4. Wait for 200 scanlines to complete
+;   5. Restore original PIT and IRQ0
+; ============================================================================
+render_pit_frame:
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    
+    cli                         ; Disable interrupts during setup
+    
+    ; -----------------------------------------------------------------------
+    ; Reset scanline counter and color pointer
+    ; -----------------------------------------------------------------------
+    mov word [scanline_count], 0
+    mov word [color_offset], 0
+    mov byte [frame_done], 0
+    
+    ; -----------------------------------------------------------------------
+    ; Install our custom IRQ0 handler
+    ; -----------------------------------------------------------------------
+    xor ax, ax
+    mov es, ax                  ; ES = 0 (IVT segment)
+    mov word [es:0x08*4], irq0_handler      ; Set offset
+    mov word [es:0x08*4+2], cs              ; Set segment
+    
+    ; -----------------------------------------------------------------------
+    ; Program PIT Channel 0 for scanline timing
+    ; -----------------------------------------------------------------------
+    ; Command byte: 00 11 010 0 = 0x34
+    ;   Bits 7-6: 00 = Select channel 0
+    ;   Bits 5-4: 11 = Access mode: low byte then high byte
+    ;   Bits 3-1: 010 = Mode 2 (rate generator)
+    ;   Bit 0:    0 = Binary counting
+    
+    mov al, 0x34                ; Channel 0, lobyte/hibyte, mode 2, binary
+    out PIT_COMMAND, al
+    jmp short $+2               ; I/O delay
+    
+    mov ax, [pit_count]         ; Get current PIT count value
+    out PIT_CH0_DATA, al        ; Low byte
+    jmp short $+2
+    mov al, ah
+    out PIT_CH0_DATA, al        ; High byte
+    
+    ; -----------------------------------------------------------------------
+    ; Enable interrupts and wait for frame to complete
+    ; -----------------------------------------------------------------------
+    sti
+    
+.wait_frame:
+    cmp byte [frame_done], 0
+    je .wait_frame              ; Spin until ISR sets frame_done
+    
+    cli                         ; Disable interrupts for cleanup
+    
+    ; -----------------------------------------------------------------------
+    ; Restore original PIT settings (mode 3, count 65536)
+    ; -----------------------------------------------------------------------
+    mov al, 0x36                ; Channel 0, lobyte/hibyte, mode 3, binary
+    out PIT_COMMAND, al
+    jmp short $+2
+    xor al, al                  ; Low byte (0 = 65536)
+    out PIT_CH0_DATA, al
+    jmp short $+2
+    out PIT_CH0_DATA, al        ; High byte
+    
+    ; -----------------------------------------------------------------------
+    ; Restore original IRQ0 handler
+    ; -----------------------------------------------------------------------
+    xor ax, ax
+    mov es, ax
+    mov ax, [old_irq0_off]
+    mov [es:0x08*4], ax
+    mov ax, [old_irq0_seg]
+    mov [es:0x08*4+2], ax
+    
+    sti
+    
+    pop es
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
 
 ; ============================================================================
-; render_scanlines - The heart of the demo!
+; irq0_handler - Custom IRQ0 Interrupt Service Routine
 ; ============================================================================
-; This routine outputs different colors for each of the 200 scanlines.
-; It must be precisely synchronized with the CRT beam to avoid visual
-; artifacts.
+; This ISR fires once per scanline (~63.5µs intervals).
+; It must be FAST - we only have about 80 cycles during HBLANK!
 ;
-; TIMING ANALYSIS (8 MHz V40):
-;   - Horizontal line time: ~63.5 µs
-;   - Horizontal blanking: ~10 µs (~80 CPU cycles)
-;   - Our 3 OUTs: ~4 cycles each = ~12 cycles + setup ≈ 30 cycles
-;   - Plenty of margin!
-;
-; PORT_STATUS bit 0: HSYNC (horizontal sync)
-;   - 0 = Beam is drawing visible pixels
-;   - 1 = Beam is in horizontal blanking (safe to change palette!)
+; What it does:
+;   1. Save registers
+;   2. Write new color to palette entry 0
+;   3. Increment scanline counter
+;   4. If 200 scanlines done, set frame_done flag
+;   5. Send EOI to PIC
+;   6. Restore registers and IRET
 ; ============================================================================
-render_scanlines:
+irq0_handler:
+    push ax
+    push bx
+    push ds
+    
+    ; -----------------------------------------------------------------------
+    ; Set up DS to access our data
+    ; -----------------------------------------------------------------------
+    mov ax, [cs:isr_data_seg]
+    mov ds, ax
+    
+    ; -----------------------------------------------------------------------
+    ; Check if we've done all scanlines
+    ; -----------------------------------------------------------------------
+    mov bx, [scanline_count]
+    cmp bx, SCREEN_HEIGHT
+    jae .done_frame
+    
+    ; -----------------------------------------------------------------------
+    ; Write palette entry 0 with new color
+    ; -----------------------------------------------------------------------
+    mov al, 0x40                ; Select palette entry 0
+    out PORT_PAL_ADDR, al
+    
+    mov bx, [color_offset]      ; BX = offset into color_table
+    mov al, [color_table + bx]  ; Get R value
+    out PORT_PAL_DATA, al
+    mov al, [color_table + bx + 1] ; Get G<<4|B value
+    out PORT_PAL_DATA, al
+    
+    ; -----------------------------------------------------------------------
+    ; Advance to next scanline
+    ; -----------------------------------------------------------------------
+    add word [color_offset], 2
+    inc word [scanline_count]
+    jmp .send_eoi
+    
+.done_frame:
+    mov byte [frame_done], 1    ; Signal main loop that frame is complete
+    
+.send_eoi:
+    ; -----------------------------------------------------------------------
+    ; Send End-Of-Interrupt to PIC
+    ; -----------------------------------------------------------------------
+    mov al, 0x20                ; EOI command
+    out PIC_CMD, al
+    
+    pop ds
+    pop bx
+    pop ax
+    iret
+
+; ============================================================================
+; render_polling_frame - Render using HSYNC polling (for comparison)
+; ============================================================================
+render_polling_frame:
     push ax
     push cx
     push dx
     push si
     
-    ; -----------------------------------------------------------------------
-    ; Disable interrupts during rendering
-    ; -----------------------------------------------------------------------
-    ; We can't afford to have timer interrupts or other IRQs disrupting
-    ; our carefully timed palette writes! Even a few microseconds delay
-    ; could cause visible glitches.
+    cli
     
-    cli                         ; Disable interrupts
+    xor si, si                  ; SI = offset into color_table
+    mov cx, SCREEN_HEIGHT       ; CX = scanline counter
+    mov dx, PORT_STATUS
     
-    xor si, si                  ; SI = offset into color_table (starts at 0)
-    mov cx, SCREEN_HEIGHT       ; CX = scanline counter (200 lines)
-    mov dx, PORT_STATUS         ; DX = status port for fast IN instruction
-    
-    ; -----------------------------------------------------------------------
-    ; Check if HSYNC waiting is enabled
-    ; -----------------------------------------------------------------------
-    cmp byte [hsync_enabled], 0
-    je .no_hsync_loop           ; Skip sync waiting if disabled
-    
-    ; -----------------------------------------------------------------------
-    ; HSYNC-synchronized rendering loop
-    ; -----------------------------------------------------------------------
 .scanline_loop:
-    ; Wait for HSYNC to go LOW (beam is drawing visible area)
-    ; We need to catch the transition to ensure we're at the right spot
+    ; Wait for HSYNC to go LOW
 .wait_low:
-    in al, dx                   ; Read status register
-    test al, 0x01               ; Test bit 0 (HSYNC)
-    jnz .wait_low               ; Loop while HSYNC is high
+    in al, dx
+    test al, 0x01
+    jnz .wait_low
     
-    ; Wait for HSYNC to go HIGH (beam entering horizontal blanking)
-    ; NOW is when we can safely write to the palette!
+    ; Wait for HSYNC to go HIGH (HBLANK begins)
 .wait_high:
-    in al, dx                   ; Read status register
-    test al, 0x01               ; Test bit 0 (HSYNC)
-    jz .wait_high               ; Loop while HSYNC is low
+    in al, dx
+    test al, 0x01
+    jz .wait_high
     
-    ; -----------------------------------------------------------------------
-    ; CRITICAL SECTION: Write palette entry 0's new color
-    ; -----------------------------------------------------------------------
-    ; We're now in HBLANK - write the 3 bytes as fast as possible!
-    ;
-    ; Palette write sequence:
-    ; 1. OUT to PORT_PAL_ADDR: Select palette entry (0x40 = entry 0)
-    ; 2. OUT to PORT_PAL_DATA: Write R value (0-7)
-    ; 3. OUT to PORT_PAL_DATA: Write G<<4 | B value
-    
-    mov al, 0x40                ; Select palette entry 0
-    out PORT_PAL_ADDR, al
-    mov al, [color_table + si]  ; Get R value for this scanline
-    out PORT_PAL_DATA, al
-    mov al, [color_table + si + 1] ; Get G<<4|B value
-    out PORT_PAL_DATA, al
-    
-    add si, 2                   ; Advance to next color entry
-    loop .scanline_loop         ; Decrement CX, loop if not zero
-    jmp .done_render
-    
-    ; -----------------------------------------------------------------------
-    ; Non-synchronized rendering loop (for educational demonstration)
-    ; -----------------------------------------------------------------------
-    ; When HSYNC waiting is disabled, we just blast out palette writes
-    ; as fast as possible. This causes visible artifacts because we're
-    ; changing colors while the beam is drawing visible pixels!
-    
-.no_hsync_loop:
-.no_sync_scanline:
+    ; Write palette entry 0
     mov al, 0x40
     out PORT_PAL_ADDR, al
     mov al, [color_table + si]
@@ -384,19 +468,9 @@ render_scanlines:
     out PORT_PAL_DATA, al
     
     add si, 2
-    loop .no_sync_scanline
+    loop .scanline_loop
     
-.done_render:
-    ; -----------------------------------------------------------------------
-    ; Reset palette entry 0 to first color for clean top of next frame
-    ; -----------------------------------------------------------------------
-    mov al, 0x40
-    out PORT_PAL_ADDR, al
-    xor al, al
-    out PORT_PAL_DATA, al
-    out PORT_PAL_DATA, al
-    
-    sti                         ; Re-enable interrupts
+    sti
     
     pop si
     pop dx
@@ -445,29 +519,7 @@ wait_vblank:
     ret
 
 ; ============================================================================
-; enable_graphics_mode - Activate the hidden 160x200x16 mode
-; ============================================================================
-; Mode 0x4A is an undocumented mode of the Yamaha V6355D that provides:
-;   - 160x200 resolution
-;   - 16 simultaneous colors from a 512-color palette
-;   - Programmable RGB values for each palette entry
-;
-; This mode is NOT available on standard CGA adapters!
-; ============================================================================
-enable_graphics_mode:
-    mov al, 0x4A                ; Hidden mode value
-    out PORT_MODE, al           ; Write to mode register
-    ret
-
-; ============================================================================
 ; clear_screen - Fill video memory with zeros (color index 0)
-; ============================================================================
-; In 160x200x16 mode, each pixel is 4 bits. Two pixels per byte.
-; Video memory is 16KB at segment 0xB000 (not 0xB800 like standard CGA).
-;
-; We fill everything with 0x00, so all pixels reference palette entry 0.
-; Since we change entry 0's color per-scanline, different lines appear
-; as different colors!
 ; ============================================================================
 clear_screen:
     push ax
@@ -493,30 +545,29 @@ clear_screen:
 ; DATA SECTION
 ; ============================================================================
 
-; Current state variables
-current_palette: db 6           ; Current palette (0-6), default = 7 (Full Rainbow)
-hsync_enabled:   db 1           ; HSYNC waiting: 1=on, 0=off
-vsync_enabled:   db 1           ; VSYNC waiting: 1=on, 0=off
+; --- ISR Communication Variables ---
+; These must be accessible from the ISR via CS-relative addressing
+isr_data_seg:   dw 0            ; Data segment for ISR to use
+scanline_count: dw 0            ; Current scanline being rendered
+color_offset:   dw 0            ; Offset into color_table
+frame_done:     db 0            ; Flag: 1 when 200 scanlines complete
+
+; --- Original IRQ0 Vector ---
+old_irq0_off:   dw 0            ; Original INT 08h offset
+old_irq0_seg:   dw 0            ; Original INT 08h segment
+
+; --- Configuration ---
+pit_count:      dw PIT_SCANLINE_COUNT   ; Current PIT count (adjustable)
+pit_mode:       db 1            ; 1 = PIT mode, 0 = polling mode
+vsync_enabled:  db 1            ; 1 = wait for VSYNC
 
 ; ============================================================================
-; Palette pointer table
+; PALETTE DATA - Full Rainbow (200 scanlines)
 ; ============================================================================
-; Each entry points to a 400-byte palette data block (200 colors x 2 bytes)
+; Format: R (bits 0-2), G<<4|B (bits 4-6 | 0-2)
+; Full spectrum: Red → Yellow → Green → Cyan → Blue → Magenta → Red
 
-palette_table:
-    dw pal7_fullrainbow         ; 7: Full rainbow (200 lines)
-
-; ============================================================================
-; PALETTE DATA
-; ============================================================================
-
-; ============================================================================
-; PALETTE 7: Full Rainbow (200 lines, complete hue cycle)
-; ============================================================================
-; ============================================================================
-; Full spectrum rainbow: Red → Yellow → Green → Cyan → Blue → Magenta → Red
-
-pal7_fullrainbow:
+pal_fullrainbow:
     ; RED to YELLOW (33)
     db 7,0x00, 7,0x00, 7,0x00, 7,0x00, 7,0x10, 7,0x10, 7,0x10, 7,0x10
     db 7,0x20, 7,0x20, 7,0x20, 7,0x20, 7,0x30, 7,0x30, 7,0x30, 7,0x30

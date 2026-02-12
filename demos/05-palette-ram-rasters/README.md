@@ -128,6 +128,33 @@ The key insight: Instead of being limited to 16 simultaneous colors (standard CG
 - `V` - Toggle VSYNC wait
 - `ESC` - Exit to DOS
 
+### `palram6.asm` - **NEW!** Multi-Color Raster Bar Experiment
+**Purpose:** RESEARCH DEMO - Can we change multiple palette entries per HBLANK?
+- **Complexity:** Experimental (~600 lines)
+- **Features:**
+  - Displays 16 vertical color bars (colors 0-15)
+  - Attempts to change palette entry 0 each scanline during HBLANK
+  - Tests whether multiple entries can be changed per scanline
+  - Extensively documented with hardware behavior findings
+- **Learning focus:** Understanding V6355D palette pipeline limitations
+- **Good for:** Understanding why multi-color rasters are limited on V6355D
+
+**Critical Findings Documented:**
+- **Maximum 1 palette entry per HBLANK** - Only entry 0 can be cleanly changed
+- **Writing 2 entries causes corruption** - Entry 1 shows visible artifacts
+- **"Bleed" effect discovered** - Adjacent palette entries are affected during writes
+- **Delays make it WORSE** - Adding delays before 0x80 close increases bleed
+- **Immediate close is best** - Close palette mode immediately after last data byte
+- **No direct entry selection** - V6355D streams from entry 0, cannot select arbitrary entries
+
+**Optimizations That Helped:**
+- Move `mov dx, PORT_STATUS` outside loop (saves ~800 cycles)
+- Remove delay after 0x40 address select (saves ~3000 cycles)
+- Close palette immediately (no delay before 0x80)
+
+**Controls:**
+- Any key - Exit to DOS
+
 ## Why Palette RAM Instead of PORT_COLOR?
 
 The V6355D offers two raster bar techniques:
@@ -138,9 +165,11 @@ The V6355D offers two raster bar techniques:
 | Colors | 16 palette colors | 512 RGB colors |
 | Affects | Background only | All graphics (sprites, text, etc.) |
 | Flexibility | Pick from 16 | Direct RGB control |
-| Multiple entries | No | Yes (can cycle 0-15 independently) |
+| Entries per HBLANK | N/A (index only) | **1 entry only** (see palram6 findings) |
 
 **Palette RAM is more powerful** - you get direct RGB control and affect drawn graphics, not just background. The trade-off is 3 I/O operations instead of 1.
+
+**Important limitation:** While theoretically you could change multiple palette entries per HBLANK (~80 cycles = ~11 OUTs), the V6355D palette pipeline causes adjacent entry corruption. Testing in palram6 confirmed only **1 palette entry can be cleanly changed per HBLANK**.
 
 ## Palette RAM Technical Details
 
@@ -163,8 +192,10 @@ At 8 MHz (NEC V40), per scanline:
 - **Total:** ~509 cycles per scanline
 - **Safe window (HBLANK):** ~80 cycles
 - **3 OUT instructions:** ~30 cycles ✓ (fits comfortably)
-- **9 OUTs (3 entries):** ~90 cycles (still fits, but tight)
+- **7 OUTs (2 entries):** ~49 cycles (fits timing, but corrupts entry 1!)
 - **48 OUTs (all 16):** Too slow, causes artifacts
+
+**Important:** Timing is NOT the only constraint. The V6355D palette pipeline limits you to **1 entry per HBLANK** regardless of available cycles. Writing 2+ entries causes visible corruption on adjacent entries (see palram6 findings).
 
 ## Compilation & Testing
 
@@ -175,6 +206,7 @@ nasm -f bin -o palram2.com palram2.asm
 nasm -f bin -o palram3.com palram3.asm
 nasm -f bin -o palram4.com palram4.asm
 nasm -f bin -o palram5.com palram5.asm
+nasm -f bin -o palram6.com palram6.asm
 ```
 
 ### Copy to floppy:
@@ -189,6 +221,7 @@ A:\palram2.com
 A:\palram3.com
 A:\palram4.com
 A:\palram5.com
+A:\palram6.com
 ```
 
 ## Learning Progression
@@ -198,6 +231,7 @@ A:\palram5.com
 3. **Study `palram3.asm`** - Learn about timing constraints and synchronization
 4. **Use `palram4.asm`** - See clean, optimized implementation for your projects
 5. **Experiment with `palram5.asm`** - Explore horizontal timing limits and advanced techniques
+6. **Study `palram6.asm`** - Understand why multi-color rasters are limited to 1 entry per HBLANK
 
 ## Educational Insights
 
@@ -213,6 +247,7 @@ A:\palram5.com
 3. **Direct hardware access** - I/O ports give you low-level control
 4. **Creative limitations breed innovation** - 16 colors → 512 through clever timing
 5. **Polling vs Interrupts** - V6355D requires polling HSYNC, introducing unavoidable jitter. Timer interrupt methods (8088mph, Area 5150, Kefrens) use PIT to achieve zero-jitter scanline sync on CGA.
+6. **Palette pipeline limits multi-color rasters** - V6355D can only cleanly change 1 palette entry per HBLANK. Writing 2+ entries causes visible corruption on adjacent entries due to internal palette pipeline behavior.
 
 ### Advanced Timing Techniques
 **Polling Method (used in these demos):**
@@ -248,6 +283,58 @@ The V6355D responds to both standard CGA 0x3D* ports and the 0xD* aliases. This 
 | 0x3DA | STATUS | Bit 0 = HSYNC (1=in retrace), Bit 3 = VBLANK |
 | 0x3DD | PAL_ADDR | Palette address (0x40-0x4F for entries 0-15) |
 | 0x3DE | PAL_DATA | Palette data (write R, then G\|B) |
+
+## I/O Port Speed Optimization (Short vs Long Addresses)
+
+On 8088/8086/V40 CPUs, **using port addresses ≤ 255 is faster** because of smaller instruction encoding:
+
+### Why Short Port Addresses Are Faster
+
+**Port ≤ 255 (e.g., 0xDD):**
+```asm
+out 0xDD, al    ; 2 bytes: E6 DD (immediate byte)
+                ; ~8 cycles on 8088/V40
+```
+
+**Port > 255 (e.g., 0x3DD):**
+```asm
+mov dx, 0x3DD   ; 3 bytes: BA DD 03 (~4 cycles)
+out dx, al      ; 1 byte: EE (~8 cycles)
+                ; Total: 4 bytes, ~12+ cycles
+```
+
+**Savings per OUT:** ~4 cycles
+
+### When Does It Matter?
+
+| Scenario | OUTs/frame | Savings | Worth it? |
+|----------|------------|---------|-----------|
+| Raster effects (palram1-6) | 600+ (200 × 3 OUTs) | ~2400 cycles | **YES** |
+| Bitmap scroller (demo8) | ~5 (one-time setup) | ~20 cycles | No |
+| Sound playback loops | Thousands | Significant | **YES** |
+
+**Rule of thumb:** Use short addresses (0xD8, 0xD9, 0xDD, 0xDE) in tight loops that run every scanline or frame. For one-time setup code, it doesn't matter.
+
+### PC1 Port Aliases
+
+On the Olivetti PC1, the Yamaha V6355D responds to both address ranges:
+
+| Long Address | Short Alias | Purpose |
+|--------------|-------------|---------|
+| 0x3D8 | 0xD8 | Mode control |
+| 0x3D9 | 0xD9 | Color select |
+| 0x3DA | 0xDA | Status register |
+| 0x3DD | 0xDD | Palette address |
+| 0x3DE | 0xDE | Palette data |
+
+**Important:** 0x3DA (status port) is often kept at 0x3DA for CGA compatibility with other demos, but in tight timing-critical loops, 0xDA works identically and saves cycles.
+
+### Optimizations Applied in palram6.asm
+
+1. **Use short port addresses** (0xDD, 0xDE instead of 0x3DD, 0x3DE)
+2. **Move `mov dx, PORT_STATUS` outside loop** — saves ~800 cycles/frame
+3. **Remove unnecessary delays** — saves ~3000 cycles/frame
+4. **Total savings: ~3800 cycles/frame**
 
 ## References
 
