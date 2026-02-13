@@ -1,43 +1,61 @@
 # PIT Interrupt Raster Timing - Olivetti PC1
 
-Experimental demonstrations of **PIT (Programmable Interval Timer) based scanline timing** on the Olivetti PC1 with Yamaha V6355D video controller.
+Demonstrations of **PIT (Programmable Interval Timer) based scanline timing** on the Olivetti PC1 with Yamaha V6355D video controller.
 
-This is **Method 3** from our raster timing experiments:
+## What This Folder Provides
 
-1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices. ✓ Tested in 03-port-color-rasters
-2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). ✓ Tested in 05-palette-ram-rasters
-3. **PIT interrupt raster (this folder)**: Timer IRQs schedule scanline updates
-4. CGA palette flip (0x3D8): Toggle between CGA palettes mid-scanline. (Not yet tested)
+This folder tests using **PIT interrupts** instead of **HSYNC polling** for per-scanline palette updates. The PIT method provides smoother, more consistent timing.
+
+| Demo | Technique | Status |
+|------|-----------|--------|
+| pitras1 | PIT interrupt, 1 color/scanline | ✅ WORKS |
+| pitras2 | PIT interrupt, multi-entry/scanline | ✅ WORKS |
+| pitras3 | PIT interrupt, mid-scanline color split | ✅ WORKS (with jitter) |
+
+**Key Finding:** PIT interrupts provide smoother raster effects than HSYNC polling, especially in the center and right portions of the screen. Mid-scanline palette changes are possible but jitter ~4-8 pixels due to V6355D bus contention.
+
+## Related Work
+
+- **05-palette-ram-rasters/palram1-6** - Per-scanline palette changes using polling
+- **05-palette-ram-rasters/palram5** - Mid-scanline color changes (multiple writes per scanline)
+
+For mid-scanline experiments (changing color WITHIN the visible scanline), see **palram5.asm** which documents that technique with findings about 4-8 pixel jitter.
 
 ## Hardware Target
+
 - **Machine:** Olivetti Prodest PC1
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
 - **Video Controller:** Yamaha V6355D
 - **Timer:** Intel 8253/8254 PIT (Programmable Interval Timer)
 
-## The Problem with Polling
+## Why PIT Instead of Polling?
 
-In our previous demos (palram1-6), we used **HSYNC polling** to synchronize palette writes:
+### The Polling Problem
 
 ```asm
-.wait_low:
+.wait_hsync:
     in al, dx           ; Read status port
     test al, 0x01       ; Test HSYNC bit
-    jnz .wait_low       ; Loop while HIGH
-
-.wait_high:
-    in al, dx           ; Read status port  
-    test al, 0x01       ; Test HSYNC bit
-    jz .wait_high       ; Loop while LOW
+    jz .wait_hsync      ; Loop until HIGH
 ```
 
-**Problem:** This polling loop introduces **4-8 pixels of horizontal jitter** because we might catch the HSYNC transition at any point in the loop. This is unavoidable with polling.
+**Problem:** This polling loop introduces **4-8 pixels of horizontal jitter** because we might catch the HSYNC transition at any point in the loop.
 
-## The PIT Solution
+### The PIT Solution
 
-The Intel 8253/8254 PIT can generate interrupts at precise intervals. By programming it to fire **once per scanline**, we get jitter-free palette updates:
+By programming PIT Channel 0 to fire IRQ0 every scanline (~76 ticks), we get consistent timing without polling:
 
-### PIT Timing Theory
+```asm
+; Program PIT for scanline timing
+mov al, 0x34        ; Channel 0, lobyte/hibyte, mode 2
+out 0x43, al
+mov ax, 76          ; 76 ticks ≈ 63.5 µs = 1 scanline
+out 0x40, al
+mov al, ah
+out 0x40, al
+```
+
+## Timing Constants
 
 | Constant | Value | Notes |
 |----------|-------|-------|
@@ -46,40 +64,83 @@ The Intel 8253/8254 PIT can generate interrupts at precise intervals. By program
 | Scanline Duration | ~63.5 µs | CGA horizontal timing |
 | **PIT Count/Scanline** | **76 ticks** | 63.5 / 0.838 ≈ 76 |
 
-By programming PIT Channel 0 with count=76, we get IRQ0 every scanline!
-
-### How pitras1.asm Works
-
-1. **Save original IRQ0 vector** (INT 08h) at startup
-2. **Wait for VBLANK** to synchronize with frame start
-3. **Install custom IRQ0 handler** that writes palette entry 0
-4. **Program PIT** for 76-tick intervals (mode 2, rate generator)
-5. **ISR fires 200 times** (once per scanline), each time:
-   - Writes new color to palette entry 0
-   - Increments scanline counter
-   - Sends EOI to PIC
-6. **After 200 scanlines**: Set frame_done flag
-7. **Restore original PIT** (mode 3, count 65536 = ~18.2 Hz BIOS timer)
-8. **Restore original IRQ0** vector
-
 ## Files
 
-### `pitras1.asm` - PIT-Timed Palette Updates
-**Purpose:** Replace HSYNC polling with timer-driven interrupts
-- **Complexity:** Advanced (~620 lines)
-- **Features:**
-  - Custom IRQ0 handler for per-scanline palette writes
-  - Toggle between PIT mode and polling mode (for comparison)
-  - Adjustable PIT count (use +/- keys to tune timing)
-  - Full rainbow gradient (200 colors)
-- **Learning focus:** PIT programming, interrupt handling, jitter-free timing
+### `pitras1.asm` - PIT-Timed Palette Updates ✅
+
+**Purpose:** Replace HSYNC polling with timer-driven interrupts for per-scanline palette updates.
+
+**How it works:**
+1. Save original IRQ0 vector (INT 08h)
+2. Wait for VBLANK to synchronize with frame start
+3. Install custom IRQ0 handler that writes palette entry 0
+4. Program PIT for 76-tick intervals (mode 2, rate generator)
+5. ISR fires 200 times per frame, each time writing new color
+6. After 200 scanlines, set frame_done flag
+7. Restore original PIT and IRQ0 vector
 
 **Controls:**
-- `P` - Toggle PIT mode vs HSYNC polling mode
-- `+` / `=` - Increase PIT count (bars drift down)
-- `-` - Decrease PIT count (bars drift up)
+- `P` - Toggle PIT mode vs HSYNC polling mode (compare!)
+- `.` - Increase PIT count (bars drift down)
+- `,` - Decrease PIT count (bars drift up)
 - `V` - Toggle VSYNC waiting
-- `ESC` - Exit to DOS
+- `ESC` - Exit
+
+---
+
+### `pitras2.asm` - Multiple Palette Entries per Scanline ✅
+
+**Purpose:** Test updating multiple palette entries during each PIT ISR.
+
+**Status:** Successfully updates up to 8 palette entries per scanline.
+
+**Controls:**
+- `1-8` - Select number of palette entries to update per scanline
+- `ESC` - Exit
+
+---
+
+### `pitras3.asm` - Mid-Scanline Color Split ✅ (with jitter)
+
+**Purpose:** Prove that PIT interrupts can produce **two different colors on a single scanline** by changing palette entry 0 mid-scanline.
+
+**How it works:**
+1. PIT Channel 0 fires IRQ0 once per scanline (~76 ticks)
+2. ISR writes BLUE (R=0,G=0,B=7) to palette entry 0
+3. Variable NOP+LOOP delay burns CPU cycles while the CRT beam scans right
+4. ISR writes RED (R=7,G=0,B=0) to palette entry 0
+5. Left portion of scanline renders blue, right portion renders red
+
+**Result:** Two colors clearly visible on same scanlines. The split point is controllable via the NOP delay. However, the boundary jitters ~4-8 pixels per frame.
+
+**Why the jitter?**
+- The Yamaha V6355D steals bus cycles unpredictably to fetch VRAM, causing the NOP delay to vary by a few cycles per scanline
+- No hardware HSYNC status bit is available on the V6355D for precise synchronization
+- The 8088MPH DRAM refresh trick (PIT CH1: 18→19 ticks) does **not** apply — the NEC V40 has integrated refresh logic, not PIT-driven refresh
+- Pixel-stable splits would require reverse-engineering the V6355D bus access pattern
+
+**Controls:**
+- `Left/Right` - NOP delay ±1 (fine tune split position)
+- `+/-` - NOP delay ±10 (coarse adjustment)
+- `.` / `,` - PIT count ±1 (tune scanline interval)
+- `ESC` - Exit
+
+---
+
+## Key Findings Summary
+
+| Finding | Detail |
+|---------|--------|
+| PIT per-scanline timing | ✅ Works reliably at 76 ticks/scanline |
+| Multiple palette entries/scanline | ✅ Up to 8 entries per ISR (pitras2) |
+| Mid-scanline color split | ✅ Proven — two colors visible on same line |
+| Pixel-stable mid-scanline | ❌ Not achievable — V6355D bus contention causes ~4-8px jitter |
+| DRAM refresh trick (8088MPH) | ❌ Not applicable — V40 has internal refresh, not PIT CH1-driven |
+| V6355D HSYNC status bit | ❌ Not available — no readable horizontal sync reference |
+
+**Conclusion:** PIT-driven raster effects on the PC1 are excellent for per-scanline color changes (pitras1/2). Mid-scanline splits work visually but cannot achieve pixel-level stability without hardware-level V6355D knowledge. For demo effects, the jitter is acceptable for wide color bands; for fine horizontal precision, a different approach would be needed.
+
+---
 
 ## PIT Programming Reference
 
@@ -95,29 +156,10 @@ By programming PIT Channel 0 with count=76, we get IRQ0 every scanline!
 ### PIT Command Byte (port 0x43)
 
 ```
-Bits 7-6: Channel select
-  00 = Channel 0 (IRQ0, system timer)
-  01 = Channel 1 (DRAM refresh)
-  10 = Channel 2 (PC speaker)
-  11 = Read-back command (8254 only)
-
-Bits 5-4: Access mode
-  00 = Latch count value
-  01 = Low byte only
-  10 = High byte only
-  11 = Low byte, then high byte
-
-Bits 3-1: Operating mode
-  000 = Mode 0 (interrupt on terminal count)
-  001 = Mode 1 (hardware retriggerable one-shot)
-  010 = Mode 2 (rate generator) ← Use this for scanline timing
-  011 = Mode 3 (square wave generator) ← BIOS default
-  100 = Mode 4 (software triggered strobe)
-  101 = Mode 5 (hardware triggered strobe)
-
-Bit 0: Counting mode
-  0 = Binary (16-bit)
-  1 = BCD (4-digit)
+Bits 7-6: Channel select (00=CH0, 01=CH1, 10=CH2)
+Bits 5-4: Access mode (01=LSB, 10=MSB, 11=LSB then MSB)
+Bits 3-1: Operating mode (010=Mode 2 rate generator)
+Bit 0:    Counting mode (0=binary)
 ```
 
 ### Example: Program PIT for Scanline Timing
@@ -147,88 +189,32 @@ out 0x40, al        ; Low byte
 out 0x40, al        ; High byte
 ```
 
-## I/O Port Speed Optimization
+## Test Results
 
-**Short port addresses (≤ 255) are faster** because they use smaller instruction encoding:
+**Tested on real Olivetti Prodest PC1**
 
-### Short vs Long Address Encoding
+| Aspect | Polling Mode | PIT Mode |
+|--------|--------------|----------|
+| Left border jitter | Less jitter | Slightly more |
+| Center/right jitter | More jitter | **Much less** |
+| Overall smoothness | Visible jitter | **Smoother** |
 
-| Port | Instruction | Bytes | Cycles | Example |
-|------|-------------|-------|--------|---------|
-| ≤ 255 | `out 0xDD, al` | 2 | ~8 | Palette ports (0xDD, 0xDE) |
-| > 255 | `mov dx, 0x3DD` + `out dx, al` | 4 | ~12 | Standard CGA form |
-
-**Savings:** ~4 cycles per OUT instruction
-
-### When It Matters
-
-| Scenario | OUTs/frame | Savings | Worth it? |
-|----------|------------|---------|-----------|
-| This demo (pitras1) | 600+ | ~2400 cycles | **YES** |
-| Bitmap scroller | ~5 | ~20 cycles | No |
-
-### PC1 Port Aliases
-
-| Long Address | Short Alias | Purpose |
-|--------------|-------------|---------|
-| 0x3D8 | 0xD8 | Mode control |
-| 0x3D9 | 0xD9 | Color select |
-| 0x3DA | 0xDA | Status register |
-| 0x3DD | 0xDD | Palette address |
-| 0x3DE | 0xDE | Palette data |
-
-**pitras1.asm uses short addresses** (0xD8, 0xDD, 0xDE) for the palette ports that are written inside the ISR.
-
-## Comparison: Polling vs PIT
-
-| Aspect | HSYNC Polling | PIT Interrupts |
-|--------|---------------|----------------|
-| Horizontal jitter | 4-8 pixels | **0 pixels** (if tuned) |
-| CPU usage | 100% (busy-wait) | ~20% (wait + ISR) |
-| Complexity | Simple | More complex |
-| Tuning required | No | Yes (PIT count) |
-| Works on CGA | Yes | Yes |
-| Works on V6355D | Yes | Unknown (testing!) |
-
-## Compilation & Testing
-
-### Compile:
-```powershell
-nasm -f bin -o pitras1.com pitras1.asm
-```
-
-### Copy to floppy:
-```powershell
-copy pitras1.com a:
-```
-
-### Run on PC1:
-```
-A:\pitras1.com
-```
-
-### Tuning the PIT Count
-
-If the raster bars drift up or down on your hardware:
-- Press `+` to increase count (bars drift down, then stabilize)
-- Press `-` to decrease count (bars drift up, then stabilize)
-
-The theoretical value is 76, but your specific hardware may need 75-77 due to clock drift between PIT and video controller.
-
-## Research Status
-
-This is an **experimental demo**. We're investigating whether PIT-based timing works better than polling on the Yamaha V6355D. Results will be documented here after testing on real hardware.
+**Conclusion:** PIT interrupt timing provides visibly smoother raster effects compared to HSYNC polling, especially in the center and right portions of the screen.
 
 ## References
 
 - Intel 8253/8254 PIT datasheet
-- 8088MPH demo (Hornet + CRTC + Trixter) - pioneered PIT raster timing on CGA
-- Area 5150 demo - advanced CGA raster effects
-- Kefrens bars effect - classic Amiga technique adapted for PC
+- [8088 MPH: We Break All Your Emulators](https://trixter.oldskool.org/2015/04/07/8088-mph-we-break-all-your-emulators/) - Trixter
+- [More 8088 MPH how it's done](http://www.reenigne.org/blog/more-8088-mph-how-its-done/) - reenigne
+
+## Compilation
+
+```powershell
+nasm -f bin -o pitras1.com pitras1.asm
+nasm -f bin -o pitras2.com pitras2.asm
+nasm -f bin -o pitras3.com pitras3.asm
+copy pitras*.com a:
+```
 
 ## Author
 Retro Erik - 2026
-
----
-
-**Note:** PIT-based raster timing is an advanced technique that requires careful coordination between timer interrupts and video hardware. This demo explores whether it's practical on the Yamaha V6355D.

@@ -55,10 +55,19 @@
 ; CONTROLS
 ; ============================================================================
 ;
-;   +/-  : Adjust PIT count (fine-tune scanline timing)
-;   P    : Toggle PIT mode vs HSYNC polling mode
-;   V    : Toggle VSYNC waiting
-;   ESC  : Exit to DOS
+;   , / .  : Adjust PIT count (fine-tune scanline timing)
+;   P      : Toggle PIT mode vs HSYNC polling mode
+;   V      : Toggle VSYNC waiting
+;   ESC    : Exit to DOS
+;
+; ============================================================================
+; HARDWARE TEST RESULTS (Olivetti Prodest PC1)
+; ============================================================================
+;
+; PIT mode vs Polling mode comparison:
+;   - PIT mode: Much less jitter in the middle/right of screen
+;   - PIT mode: Slightly more jitter in left border area
+;   - Overall: PIT timing is a SUCCESS - visibly smoother raster bars
 ;
 ; ============================================================================
 
@@ -222,18 +231,15 @@ check_keyboard:
     jmp .no_key
     
 .not_v:
-    ; + - Increase PIT count (slower = bars drift down)
-    cmp al, '+'
-    je .inc_pit
-    cmp al, '='
-    jne .not_plus
-.inc_pit:
+    ; . - Increase PIT count (slower = bars drift down)
+    cmp al, '.'
+    jne .not_period
     inc word [pit_count]
     jmp .no_key
     
-.not_plus:
-    ; - - Decrease PIT count (faster = bars drift up)
-    cmp al, '-'
+.not_period:
+    ; , - Decrease PIT count (faster = bars drift up)
+    cmp al, ','
     jne .no_key
     cmp word [pit_count], 50
     jbe .no_key               ; Prevent underflow below 50
