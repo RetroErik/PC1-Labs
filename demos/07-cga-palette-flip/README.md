@@ -67,7 +67,7 @@ nasm cgaflip4.asm -o cgaflip4.com -l cgaflip4.lst
 
 ## Hardware Requirements
 
-- **Olivetti Prodest PC1** (or M24) with Yamaha V6355D video controller
+- **Olivetti Prodest PC1** with Yamaha V6355D video controller
 - NEC V40 CPU @ 8 MHz (timing-critical)
 - CGA-compatible monitor
 

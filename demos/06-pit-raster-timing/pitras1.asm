@@ -18,7 +18,7 @@
 ;   6. On exit, restore original PIT and IRQ0 vector
 ;
 ; Written for NASM assembler
-; Target: Olivetti Prodest PC1 / M24 with Yamaha V6355D video controller
+; Target: Olivetti Prodest PC1 with Yamaha V6355D video controller
 ; CPU: NEC V40 (80186 compatible) @ 8 MHz
 ;
 ; By Retro Erik - 2026

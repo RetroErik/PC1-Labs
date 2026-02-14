@@ -147,7 +147,7 @@ Increase for faster movement, decrease for slower.
 
 ## Notes
 
-- Requires Olivetti PC1/M24 (or compatible with V6355D graphics chip)
+- Requires Olivetti PC1 (or compatible with V6355D graphics chip)
 - Uses CGA 640x200 mode (Mode 6)
 - All demos are standalone - no mouse driver or other dependencies
 - Visual effect depends on correct raster timing
