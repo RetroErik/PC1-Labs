@@ -1,33 +1,33 @@
 ; ============================================================================
-; CGAFLIP4.ASM - CGA Palette Flip + Visible-Area Palette Reprogramming
+; CGAFLIP5.ASM - CGA Palette Flip — Split-Screen Proof-of-Concept
 ; ============================================================================
 ;
-; EXPERIMENT: Reprogram ALL palette entries during the visible scanline
-; area, not during HBLANK. Palette flip (1 OUT to 0xD9) during HBLANK,
-; then stream all 8 entries via 0xDD/0xDE during the visible area.
+; CONFIRMED RESULT (February 2026, real PC1 hardware):
 ;
-; RESULT: FLICKERING / BLINKING CONFIRMED on real V6355D hardware.
+;   Per-scanline palette FLIP via port 0xD9 is PERFECTLY STABLE.
+;   6 freely programmable colors + black, zero flicker.
 ;
-; Initially it was thought that the flickering was caused by writing
-; NEW values to ACTIVE entries. Simone's insight suggested that only
-; INACTIVE entries should be changed. This was tested in cgaflip5
-; with multiple variants:
-;   - Inactive-entry-only streaming (swapped data layout)
-;   - Same-value writes (identical data for active entries)
-;   - 2x slowed gradient (adjacent lines share same color)
+;   Palette STREAMING (open 0x40 / write via 0xDE / close 0x80)
+;   during the visible area ALWAYS causes visible blinking — even
+;   when targeting only INACTIVE entries with unchanged values.
+;   The V6355D palette write protocol itself disrupts video output.
 ;
-; ALL streaming variants flickered. The root cause is NOT which entries
-; you write or what values you write — the V6355D palette write PROTOCOL
-; itself (open 0x40 / stream via 0xDE / close 0x80) disrupts video
-; output whenever it is used during the visible area.
+; HISTORY:
+;   This file began as an attempt to fix cgaflip4's flickering by
+;   writing only inactive entries (Simone's insight). Multiple
+;   variants were tested:
+;     - Full 8-entry streaming with active entries changing → flicker
+;     - Inactive-entry-only streaming (swapped data layout) → flicker
+;     - 2x slowed gradient (same values on adjacent lines) → flicker
+;     - Flip-only, NO streaming → PERFECTLY STABLE
 ;
-; cgaflip5 confirmed that palette flip (0xD9 only, NO palette RAM writes)
-; is perfectly stable: 6 colors + black, zero flicker.
+;   Conclusion: the PALETTE WRITE PROTOCOL itself (open/stream/close)
+;   disrupts V6355D output. It is NOT about which entries you write
+;   or what values you write — any palette register access during the
+;   visible area causes blinking.
 ;
-; CONCLUSION: Per-scanline palette streaming during visible area is
-; NOT viable on V6355D. Palette entries must be set during VBLANK.
-; The only stable per-scanline palette change is 1 entry during HBLANK
-; (see cgaflip3.asm).
+;   The current code demonstrates the stable flip-only approach with
+;   a split-screen test: top half = palette 0, bottom half = palette 1.
 ;
 ; Written for NASM assembler
 ; Target: Olivetti Prodest PC1 with Yamaha V6355D video controller
@@ -50,28 +50,29 @@
 ;    To write entry N, must write all entries 0 through N-1 first.
 ;
 ; ============================================================================
-; THE TECHNIQUE
+; THE TECHNIQUE (current version: flip-only, no streaming)
 ; ============================================================================
 ;
 ; DURING HBLANK (~80 cycles):
-;   - 1 OUT to 0xD9: flip palette (0x00 or 0x20)
+;   - 1 OUT to 0xD9: set palette (0x00 or 0x20)
 ;
-; DURING VISIBLE AREA (~424 cycles):
-;   - Open palette (0x40 to 0xDD)
-;   - Stream-write all 8 entries (16 × LODSB+OUT to 0xDE)
-;   - Close palette (0x80 to 0xDD)
+; NO VISIBLE-AREA PALETTE WRITES.
+;   All palette entries are set once during program_palette (VBLANK).
+;   The render loop only flips the palette select register.
 ;
-;   Cost: 1 (flip) + 2 (open/close) + 16 (LODSB+OUT) = 19 instructions
-;   Timing: ~160 cycles (well within 424 visible-area budget)
+; CURRENT MODE: Split-screen test
+;   Top 100 lines: PAL_EVEN (0x00) → entries {0, 2, 4, 6}
+;   Bottom 100 lines: PAL_ODD (0x20) → entries {0, 3, 5, 7}
+;   This proves the palette select register works per-scanline.
 ;
-; WHAT COULD GO WRONG:
-;   - ANY palette RAM access (open/stream/close via 0xDD/0xDE) during
-;     the visible area causes blinking on V6355D — regardless of which
-;     entries are targeted or what values are written.
-;   - CONFIRMED: Even writing only inactive entries with their current
-;     unchanged values causes blinking (tested in cgaflip5).
-;   - The palette write protocol itself disrupts V6355D video output.
-;   - See cgaflip5.asm for the full test progression and conclusions.
+; RESULT: 6 colors + black, perfectly stable, zero flicker.
+;
+; WHAT FAILED (visible-area palette streaming):
+;   Opening the palette write protocol (0x40 → 0xDD) and streaming
+;   data (LODSB+OUT to 0xDE) during the visible area causes visible
+;   blinking — even when writing only inactive entries with their
+;   current unchanged values. The V6355D's palette read pipeline is
+;   disrupted by the write protocol regardless of data content.
 ;
 ; ============================================================================
 ; CGA PALETTE MAPPING (with bg = entry 0)
@@ -86,19 +87,17 @@
 ;          │ (entry 1 unused — streamed through)
 ;
 ; ============================================================================
-; WHAT YOU SHOULD SEE (if it works!)
+; WHAT YOU SHOULD SEE
 ; ============================================================================
 ;
-; 4 vertical bands. Band 0 = solid black. Bands 1-3 each show a
-; smooth rainbow gradient flowing down the screen, with each band
-; at a different phase offset (different part of the spectrum).
+; 4 vertical bands across the screen (pixel values 0-3).
+; Band 0 = black (background). Bands 1-3 show colors.
 ;
-; EVERY scanline should show gradient colors (not just every other).
-; ACTUAL RESULT: Visible flickering/blinking. The palette write protocol
-; (open/stream/close via 0xDD/0xDE) disrupts V6355D output during the
-; visible area. This is NOT fixable by targeting only inactive entries
-; or writing unchanged values — tested in cgaflip5.
-; See cgaflip5.asm for the stable flip-only proof-of-concept.
+; TOP HALF (lines 0-99): palette 0 → Red, Green, Blue
+; BOTTOM HALF (lines 100-199): palette 1 → Yellow, Cyan, Magenta
+;
+; All colors perfectly stable — no flickering or blinking.
+; This proves per-scanline palette select via 0xD9 is rock solid.
 ;
 ; ============================================================================
 ; CONTROLS
@@ -232,19 +231,17 @@ fill_screen_bands:
     ret
 
 ; ============================================================================
-; render_frame - Palette flip + full visible-area palette stream
+; render_frame - Palette flip only (split-screen test)
 ; ============================================================================
-; Per scanline:
-;   HBLANK:  1 OUT (palette flip via 0xD9)
-;   VISIBLE: 19 instructions (open + 16 LODSB/OUT + close)
+; Top 100 lines: PAL_EVEN (0x00) → entries {0, 2, 4, 6}
+; Bottom 100 lines: PAL_ODD (0x20) → entries {0, 3, 5, 7}
 ;
-; All 8 entries streamed from gradient_data table (16 bytes/line).
-; Entries 0,1 = always black. Entries 2-7 = rainbow gradient.
+; NO palette streaming during visible area (proven to cause blinking).
+; All palette entries set once in program_palette.
 ; ============================================================================
 render_frame:
     cli
 
-    mov si, gradient_data
     mov cx, SCREEN_HEIGHT
     mov bl, PAL_EVEN
     mov bh, PAL_ODD
@@ -253,68 +250,45 @@ render_frame:
     je .no_hsync_loop
 
     ; ------------------------------------------------------------------
-    ; HSYNC-synced loop
+    ; HSYNC-synced loop — SPLIT-SCREEN TEST
     ; ------------------------------------------------------------------
-.scanline:
-.wait_low:
+    ; Top 100 lines: PAL_EVEN (0x00) → E2=Red, E4=Green, E6=Blue
+    ; Bottom 100 lines: PAL_ODD (0x20) → E3=Yellow, E5=Cyan, E7=Magenta
+    ; If you see different colors top vs bottom, the flip IS working.
+    ; ------------------------------------------------------------------
+
+    ; --- Top half: 100 lines with PAL_EVEN ---
+    mov cx, 100
+.top_half:
+.wait_low_t:
     in al, PORT_DA
     test al, 0x01
-    jnz .wait_low
-
-.wait_high:
+    jnz .wait_low_t
+.wait_high_t:
     in al, PORT_DA
     test al, 0x01
-    jz .wait_high
+    jz .wait_high_t
 
-    ; === HBLANK: just flip palette (1 OUT) ===
-    mov al, bl
+    mov al, PAL_EVEN
     out PORT_D9, al
+    loop .top_half
 
-    ; === VISIBLE AREA: stream all 8 entries (16 bytes) ===
-    mov al, 0x40
-    out PORT_DD, al         ; Open palette at entry 0
+    ; --- Bottom half: 100 lines with PAL_ODD ---
+    mov cx, 100
+.bottom_half:
+.wait_low_b:
+    in al, PORT_DA
+    test al, 0x01
+    jnz .wait_low_b
+.wait_high_b:
+    in al, PORT_DA
+    test al, 0x01
+    jz .wait_high_b
 
-    ; Entries 0-7: all from gradient_data table
-    lodsb
-    out PORT_DE, al         ; Entry 0 R
-    lodsb
-    out PORT_DE, al         ; Entry 0 G|B
-    lodsb
-    out PORT_DE, al         ; Entry 1 R
-    lodsb
-    out PORT_DE, al         ; Entry 1 G|B
-    lodsb
-    out PORT_DE, al         ; Entry 2 R
-    lodsb
-    out PORT_DE, al         ; Entry 2 G|B
-    lodsb
-    out PORT_DE, al         ; Entry 3 R
-    lodsb
-    out PORT_DE, al         ; Entry 3 G|B
-    lodsb
-    out PORT_DE, al         ; Entry 4 R
-    lodsb
-    out PORT_DE, al         ; Entry 4 G|B
-    lodsb
-    out PORT_DE, al         ; Entry 5 R
-    lodsb
-    out PORT_DE, al         ; Entry 5 G|B
-    lodsb
-    out PORT_DE, al         ; Entry 6 R
-    lodsb
-    out PORT_DE, al         ; Entry 6 G|B
-    lodsb
-    out PORT_DE, al         ; Entry 7 R
-    lodsb
-    out PORT_DE, al         ; Entry 7 G|B
+    mov al, PAL_ODD
+    out PORT_D9, al
+    loop .bottom_half
 
-    mov al, 0x80
-    out PORT_DD, al         ; Close palette
-
-    ; Swap for next line
-    xchg bl, bh
-
-    loop .scanline
     jmp .done_render
 
     ; ------------------------------------------------------------------
@@ -324,15 +298,6 @@ render_frame:
 .no_sync_line:
     mov al, bl
     out PORT_D9, al
-
-    mov al, 0x40
-    out PORT_DD, al
-    %rep 16
-    lodsb
-    out PORT_DE, al
-    %endrep
-    mov al, 0x80
-    out PORT_DD, al
 
     xchg bl, bh
     loop .no_sync_line
@@ -402,81 +367,37 @@ hsync_enabled:  db 1
 vsync_enabled:  db 1
 
 ; ============================================================================
-; Initial palette
+; Initial palette — set once during VBLANK via program_palette
 ; ============================================================================
+; 6 distinct visible colors + black to prove palette flip works.
+;
+;   Top half (pal 0):  Band 1=Red, Band 2=Green, Band 3=Blue
+;   Bottom half (pal 1): Band 1=Yellow, Band 2=Cyan, Band 3=Magenta
+;
+; CONFIRMED: Split-screen shows all 6 colors, perfectly stable.
 palette_init:
     db 0x00, 0x00           ; 0: Black (bg/border)
     db 0x00, 0x00           ; 1: Black (unused)
-    db 0x07, 0x00           ; 2: Red   (pal 0, px 1)
-    db 0x07, 0x00           ; 3: Red   (pal 1, px 1)
-    db 0x00, 0x70           ; 4: Green (pal 0, px 2)
-    db 0x00, 0x70           ; 5: Green (pal 1, px 2)
-    db 0x07, 0x70           ; 6: Yellow (pal 0, px 3)
-    db 0x07, 0x70           ; 7: Yellow (pal 1, px 3)
-
-; ============================================================================
-; Gradient data — 200 lines × 16 bytes per line = 3200 bytes
-; ============================================================================
-; Each line: all 8 palette entries (2 bytes each = 16 bytes).
-;
-; Layout per line:
-;   [0] entry 0 R, [1] entry 0 G|B  — always 0,0 (black bg/border)
-;   [2] entry 1 R, [3] entry 1 G|B  — always 0,0 (unused)
-;   [4] entry 2 R, [5] entry 2 G|B  — band 1 even (gradient)
-;   [6] entry 3 R, [7] entry 3 G|B  — band 1 odd  (gradient +1)
-;   [8] entry 4 R, [9] entry 4 G|B  — band 2 even (gradient +67)
-;   [10] entry 5 R,[11] entry 5 G|B — band 2 odd  (gradient +68)
-;   [12] entry 6 R,[13] entry 6 G|B — band 3 even (gradient +133)
-;   [14] entry 7 R,[15] entry 7 G|B — band 3 odd  (gradient +134)
-;
-; Rainbow: 150-step cycle (R→Y→G→C→B→M→R), repeating.
-; Phase offsets per band give each band a different part of the spectrum.
-; Even/odd entries offset by 1 step for smooth per-line flow.
-
-; --- Rainbow color macro: step 0-149, repeating ---
-%macro RAINBOW_COLOR 1
-    %assign %%step (%1 %% 150)
-    %if %%step < 25
-        ; Red → Yellow: R=7, G: 0→7
-        %assign %%g ((%%step * 7 + 12) / 24)
-        db 7, (%%g << 4)
-    %elif %%step < 50
-        ; Yellow → Green: R: 7→0, G=7
-        %assign %%r (7 - ((%%step - 25) * 7 + 12) / 24)
-        db %%r, 0x70
-    %elif %%step < 75
-        ; Green → Cyan: G=7, B: 0→7
-        %assign %%b ((%%step - 50) * 7 + 12) / 24
-        db 0, (0x70 | %%b)
-    %elif %%step < 100
-        ; Cyan → Blue: G: 7→0, B=7
-        %assign %%g (7 - ((%%step - 75) * 7 + 12) / 24)
-        db 0, ((%%g << 4) | 7)
-    %elif %%step < 125
-        ; Blue → Magenta: R: 0→7, B=7
-        %assign %%r ((%%step - 100) * 7 + 12) / 24
-        db %%r, 0x07
-    %elif %%step < 150
-        ; Magenta → Red: B: 7→0, R=7
-        %assign %%b (7 - ((%%step - 125) * 7 + 12) / 24)
-        db 7, %%b
-    %endif
-%endmacro
-
-gradient_data:
-%assign i 0
-%rep 200
-    db 0, 0                         ; Entry 0: black (bg/border)
-    db 0, 0                         ; Entry 1: black (unused)
-    RAINBOW_COLOR i                 ; Entry 2: band 1 even
-    RAINBOW_COLOR (i + 1)           ; Entry 3: band 1 odd (+1 for smooth flow)
-    RAINBOW_COLOR (i + 67)          ; Entry 4: band 2 even
-    RAINBOW_COLOR (i + 68)          ; Entry 5: band 2 odd
-    RAINBOW_COLOR (i + 133)         ; Entry 6: band 3 even
-    RAINBOW_COLOR (i + 134)         ; Entry 7: band 3 odd
-    %assign i (i + 1)
-%endrep
+    db 0x07, 0x00           ; 2: Red       (pal 0, px 1) - top half
+    db 0x07, 0x70           ; 3: Yellow    (pal 1, px 1) - bottom half
+    db 0x00, 0x70           ; 4: Green     (pal 0, px 2) - top half
+    db 0x00, 0x77           ; 5: Cyan      (pal 1, px 2) - bottom half
+    db 0x00, 0x07           ; 6: Blue      (pal 0, px 3) - top half
+    db 0x07, 0x07           ; 7: Magenta   (pal 1, px 3) - bottom half
 
 ; ============================================================================
 ; END OF PROGRAM
+; ============================================================================
+;
+; NOTE: The RAINBOW_COLOR macro and gradient_data table that were in
+; earlier versions of this file have been removed. They supported
+; per-scanline palette streaming during the visible area, which was
+; proven to cause blinking on V6355D hardware regardless of whether
+; active or inactive entries were targeted. The palette write protocol
+; (open 0x40 / stream via 0xDE / close 0x80) itself disrupts video
+; output.
+;
+; For per-scanline color changes, the only stable approach on V6355D
+; is writing 1 entry during HBLANK (see cgaflip3.asm). Full palette
+; changes must be done during VBLANK only.
 ; ============================================================================

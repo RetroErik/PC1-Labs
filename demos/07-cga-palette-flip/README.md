@@ -17,7 +17,9 @@ In CGA 320×200×4 mode, each pixel value (0–3) maps to a palette entry:
 
 Entry 1 is unused (no pixel value maps to it when bg = entry 0).
 
-By flipping **port 0xD9 bit 5** every scanline during HBLANK, even lines display entries {0, 2, 4, 6} and odd lines display entries {1, 3, 5, 7} — giving **7 visible foreground colors** plus black background. Combined with per-scanline palette RAM reprogramming via ports 0xDD/0xDE, the full 512-color RGB333 space is available on every line.
+By flipping **port 0xD9 bit 5** every scanline during HBLANK, even lines display entries {0, 2, 4, 6} and odd lines display entries {1, 3, 5, 7} — giving **7 visible foreground colors** plus black background.
+
+**Update (February 2026):** Per-scanline palette RAM reprogramming via ports 0xDD/0xDE during the visible area was tested (cgaflip4, cgaflip5) and **causes visible blinking**. The V6355D palette write protocol (open 0x40 / stream data / close 0x80) disrupts video output regardless of whether active or inactive entries are targeted. The palette flip itself (0xD9 only) is perfectly stable — confirmed with a split-screen test showing 6 distinct colors + black with zero flicker (cgaflip5). Per-scanline color changes are limited to 1 entry per HBLANK (cgaflip3 approach).
 
 ## Key Hardware Findings
 
@@ -34,7 +36,11 @@ All findings verified on real PC1 hardware (February 2026):
 
 5. **HBLANK budget:** ~80 cycles (~10 short-form OUTs max). Using short port aliases (0xD9 not 0x3D9) saves ~4 cycles per OUT on the V40.
 
-6. **Visible-area palette writes work** on the V6355D. Writing to palette RAM during the active display area produces only minor horizontal glitches — the palette entries update fast enough to be usable.
+6. **Palette flip (0xD9 only) is perfectly stable.** Writing ONLY the palette select register (0xD9) during HBLANK produces zero flicker — confirmed with split-screen test showing 6 distinct colors + black (cgaflip5).
+
+7. **Visible-area palette streaming causes blinking.** Opening the palette write protocol (0x40 → 0xDD, stream via 0xDE, close 0x80 → 0xDD) during the visible area causes visible blinking — even when writing only inactive entries with unchanged values (cgaflip4, cgaflip5 streaming variants). The V6355D palette read pipeline is disrupted by the write protocol itself, regardless of data content.
+
+8. **Per-HBLANK palette entry changes:** Only 1 palette entry can be cleanly changed per HBLANK (cgaflip3). Writing 2+ entries during HBLANK causes adjacent entry corruption (see Section 5c in V6355D technical reference).
 
 ## Files
 
@@ -43,7 +49,8 @@ All findings verified on real PC1 hardware (February 2026):
 | `cgaflip1.asm` | Starter template / planning file. Uses 0xD8 for palette select (standard CGA approach). Not fully implemented. | Template |
 | `cgaflip2.asm` | First working palette flip demo. Static 8-color display with 2 OUTs per scanline (0xD8 + 0xD9). Early version — comments reference 0xD8 for palette select, which was later found to not work on V6355D. | Early version |
 | `cgaflip3.asm` | **Palette flip + HBLANK gradient.** Flips palette via 0xD9 and reprograms entry 2 to a rainbow gradient every scanline — all 9 OUTs fit within HBLANK. Solid black border. Includes detailed "Lessons Learned" section. | **Verified working** |
-| `cgaflip4.asm` | **Visible-area reprogramming experiment.** Only 1 OUT during HBLANK (the palette flip). All 8 palette entries streamed from a gradient table during the visible area (~160 cycles in a 424-cycle budget). Smooth rainbow gradients on 3 bands. | **Verified working** |
+| `cgaflip4.asm` | **Visible-area reprogramming experiment.** Only 1 OUT during HBLANK (palette flip). All 8 entries streamed from gradient table during visible area (~160 cycles). **CAUSES FLICKERING** — the palette write protocol (open/stream/close via 0xDD/0xDE) disrupts V6355D output during visible area. See cgaflip5 for conclusions. | **Flickering confirmed** |
+| `cgaflip5.asm` | **Palette flip proof-of-concept (split-screen).** Tests palette flip stability WITHOUT any palette streaming. Top half = palette 0 (Red/Green/Blue), bottom half = palette 1 (Yellow/Cyan/Magenta). **6 colors + black, perfectly stable, zero flicker.** Proves that palette flip via 0xD9 is rock solid; the blinking in cgaflip4 was caused by the palette write protocol, not the flip itself. | **Verified stable** |
 | `*.com` | Assembled COM executables for each version. | Binary |
 | `*.lst` | NASM listing files. | Listing |
 | `*.jpg` | Photos from real PC1 hardware showing the output. | Hardware photos |
