@@ -164,17 +164,15 @@ main:
 ; ============================================================================
 program_palette:
     cli
-    mov al, 0x40
-    out PORT_DD, al
+    mov al, 0x44            ; 0x40 | 0x04 — open palette write at byte 4 (entry 2)
+    out PORT_DD, al         ; skip entries 0-1 (both black/unused)
     jmp short $+2
 
-    mov si, palette_init
-    mov cx, 16
-.pal_loop:
-    lodsb
-    out PORT_DE, al
-    jmp short $+2
-    loop .pal_loop
+    mov si, palette_data    ; 6 entries × 2 bytes = 12 bytes
+    mov dx, PORT_DE
+    mov cx, 12
+    cld
+    rep outsb               ; stream entries 2-7 in one burst
 
     mov al, 0x80
     out PORT_DD, al
@@ -231,18 +229,19 @@ fill_screen_bands:
     ret
 
 ; ============================================================================
-; render_frame - Palette flip only (split-screen test)
+; render_frame - Palette flip every 10 lines (striped split-screen)
 ; ============================================================================
-; Top 100 lines: PAL_EVEN (0x00) → entries {0, 2, 4, 6}
-; Bottom 100 lines: PAL_ODD (0x20) → entries {0, 3, 5, 7}
-;
+; 20 bands of 10 lines each, alternating PAL_EVEN / PAL_ODD.
 ; NO palette streaming during visible area (proven to cause blinking).
 ; All palette entries set once in program_palette.
 ; ============================================================================
+
+LINES_PER_BAND  equ 50
+NUM_BANDS       equ (SCREEN_HEIGHT / LINES_PER_BAND)  ; 20
+
 render_frame:
     cli
 
-    mov cx, SCREEN_HEIGHT
     mov bl, PAL_EVEN
     mov bh, PAL_ODD
 
@@ -250,44 +249,30 @@ render_frame:
     je .no_hsync_loop
 
     ; ------------------------------------------------------------------
-    ; HSYNC-synced loop — SPLIT-SCREEN TEST
+    ; HSYNC-synced loop — 20 bands of 10 lines, alternating palette
     ; ------------------------------------------------------------------
-    ; Top 100 lines: PAL_EVEN (0x00) → E2=Red, E4=Green, E6=Blue
-    ; Bottom 100 lines: PAL_ODD (0x20) → E3=Yellow, E5=Cyan, E7=Magenta
-    ; If you see different colors top vs bottom, the flip IS working.
-    ; ------------------------------------------------------------------
+    mov dx, NUM_BANDS       ; outer: 20 bands
 
-    ; --- Top half: 100 lines with PAL_EVEN ---
-    mov cx, 100
-.top_half:
-.wait_low_t:
+.next_band:
+    mov cx, LINES_PER_BAND  ; inner: 10 lines per band
+
+.band_line:
+.wait_low:
     in al, PORT_DA
     test al, 0x01
-    jnz .wait_low_t
-.wait_high_t:
+    jnz .wait_low
+.wait_high:
     in al, PORT_DA
     test al, 0x01
-    jz .wait_high_t
+    jz .wait_high
 
-    mov al, PAL_EVEN
+    mov al, bl              ; current palette
     out PORT_D9, al
-    loop .top_half
+    loop .band_line
 
-    ; --- Bottom half: 100 lines with PAL_ODD ---
-    mov cx, 100
-.bottom_half:
-.wait_low_b:
-    in al, PORT_DA
-    test al, 0x01
-    jnz .wait_low_b
-.wait_high_b:
-    in al, PORT_DA
-    test al, 0x01
-    jz .wait_high_b
-
-    mov al, PAL_ODD
-    out PORT_D9, al
-    loop .bottom_half
+    xchg bl, bh             ; swap palette for next band
+    dec dx
+    jnz .next_band
 
     jmp .done_render
 
@@ -295,6 +280,7 @@ render_frame:
     ; Non-synchronized loop (for testing)
     ; ------------------------------------------------------------------
 .no_hsync_loop:
+    mov cx, SCREEN_HEIGHT
 .no_sync_line:
     mov al, bl
     out PORT_D9, al
@@ -374,10 +360,11 @@ vsync_enabled:  db 1
 ;   Top half (pal 0):  Band 1=Red, Band 2=Green, Band 3=Blue
 ;   Bottom half (pal 1): Band 1=Yellow, Band 2=Cyan, Band 3=Magenta
 ;
+; Entries 0-1 are left at power-on defaults (black) — skipped via 0x44 start.
+; Only entries 2-7 are streamed (12 bytes via REP OUTSB).
+;
 ; CONFIRMED: Split-screen shows all 6 colors, perfectly stable.
-palette_init:
-    db 0x00, 0x00           ; 0: Black (bg/border)
-    db 0x00, 0x00           ; 1: Black (unused)
+palette_data:
     db 0x07, 0x00           ; 2: Red       (pal 0, px 1) - top half
     db 0x07, 0x70           ; 3: Yellow    (pal 1, px 1) - bottom half
     db 0x00, 0x70           ; 4: Green     (pal 0, px 2) - top half
