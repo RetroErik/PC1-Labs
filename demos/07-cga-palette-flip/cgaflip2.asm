@@ -1,9 +1,16 @@
 ; ============================================================================
-; CGAFLIP2.ASM - CGA Palette Flip Demo (Static 8-Color)
+; CGAFLIP2.ASM - CGA Palette Flip + Per-Scanline Palette RAM Recolor
 ; ============================================================================
 ;
-; DEMONSTRATION: Per-scanline CGA palette switching in 320x200x4 mode
-; using the Yamaha V6355D programmable RGB333 palette.
+; DEMONSTRATION: Combines TWO techniques in 320x200x4 CGA mode:
+;
+;   1. PALETTE FLIP via port 0xD9 — alternates CGA palette 0/1 per scanline
+;      (foreground colors change between even/odd lines)
+;
+;   2. PALETTE RAM REPROGRAMMING via 0xDD/0xDE — changes V6355D entry 0's
+;      RGB333 color every scanline during HBLANK (gradient in first band)
+;
+; Both happen in a single HBLANK (~80 cycles): 6 OUTs total.
 ;
 ; Written for NASM assembler
 ; Target: Olivetti Prodest PC1 with Yamaha V6355D video controller
@@ -12,65 +19,68 @@
 ; By Retro Erik - 2026
 ;
 ; ============================================================================
-; THE TECHNIQUE
+; WHAT YOU SHOULD SEE
 ; ============================================================================
 ;
-; In standard CGA 320x200x4 mode, each pixel is 2 bits → 4 colors.
-; The CGA has two foreground palettes. On the V6355D, palette select
-; is controlled by port 0xD8 (Mode Control Register) bit 5:
+; 4 vertical bands, left to right:
 ;
-;   Palette 0 (bit 5=0): pixel values map to V6355D entries {bg, 2, 4, 6}
-;   Palette 1 (bit 5=1): pixel values map to V6355D entries {bg, 3, 5, 7}
+;   BAND 0 (pixel value 0 = background):
+;     Even lines → entry 0 = RAINBOW GRADIENT (changes per line!)
+;     Odd  lines → entry 1 = fixed Hot Pink
+;     → Alternating gradient/pink horizontal stripes
 ;
-; The background index (pixel value 0) is set by port 0xD9 bits 3-0.
+;   BAND 1 (pixel value 1):
+;     Even lines → entry 2 = Red
+;     Odd  lines → entry 3 = Cyan
+;     → Alternating red/cyan horizontal stripes
 ;
-; By alternating the palette EVERY SCANLINE during HSYNC with 2 OUTs:
-;   OUT 0xD8 → palette select (bit 5 toggles palette 0 vs 1)
-;   OUT 0xD9 → background index (0 on even lines, 1 on odd lines)
+;   BAND 2 (pixel value 2):
+;     Even lines → entry 4 = Green
+;     Odd  lines → entry 5 = Magenta
+;     → Alternating green/magenta horizontal stripes
 ;
-; This displays 8 distinct RGB333 colors — 4 per line, alternating:
-;
-;   Even lines: palette 0, bg=index 0 → entries {0, 2, 4, 6}
-;   Odd  lines: palette 1, bg=index 1 → entries {1, 3, 5, 7}
-;
-; Since V6355D palette entries 0-7 are all programmable to any RGB333
-; value, this gives 8 arbitrary colors from the 512-color space.
-;
-; Timing: 2 OUTs = ~16 cycles. HBLANK is ~80 cycles. Plenty of margin.
+;   BAND 3 (pixel value 3):
+;     Even lines → entry 6 = Yellow
+;     Odd  lines → entry 7 = White
+;     → Alternating yellow/white horizontal stripes
 ;
 ; ============================================================================
-; PORT LAYOUT FOR PALETTE FLIP
+; THE TECHNIQUE (per scanline, during HBLANK)
 ; ============================================================================
 ;
-; Port 0xD8 (Mode Control Register):
-;   Bit 5: Palette select (0 = palette 0, 1 = palette 1)
-;   Other bits: mode config (kept constant: 0x0A = 320x200 graphics on)
+;   OUT 0xD9  → palette flip (bit 5) + background index (bits 3-0)
+;   OUT 0xDD  → 0x40 (open palette write at entry 0)
+;   OUT 0xDE  → R value from gradient table
+;   OUT 0xDE  → G<<4|B value from gradient table
+;   OUT 0xDD  → 0x80 (close palette write)
 ;
-;   Even lines: 0x0A = mode4 + palette 0
-;   Odd  lines: 0x2A = mode4 + palette 1  (bit 5 set)
+;   Total: 5 OUT instructions ≈ 77 cycles (fits in ~80 cycle HBLANK)
 ;
-; Port 0xD9 (Color Select Register):
+; ============================================================================
+; 0xD9 COLOR SELECT REGISTER
+; ============================================================================
+;
+;   Bit 5:   Palette select (0 = palette 0, 1 = palette 1)
+;   Bit 4:   Intensity (0 = normal)
 ;   Bits 3-0: Background color index
 ;
-;   Even lines: 0x00 = bg = entry 0
-;   Odd  lines: 0x01 = bg = entry 1
+;   Even lines: 0x00 → palette 0, bg = entry 0 (gradient)
+;   Odd  lines: 0x21 → palette 1, bg = entry 1 (fixed pink)
 ;
-;   CGA pixel value → V6355D palette entry mapping:
-;
-;     Pixel Value │ Even (palette 0) │ Odd (palette 1)
-;     ───────────┼──────────────────┼─────────────────
-;         0      │  entry 0 (bg=0)  │  entry 1 (bg=1)
-;         1      │  entry 2         │  entry 3
-;         2      │  entry 4         │  entry 5
-;         3      │  entry 6         │  entry 7
+;   Pixel  │ Even (pal 0)  │ Odd (pal 1)
+;   ───────┼───────────────┼──────────────
+;     0    │ entry 0 (bg)  │ entry 1 (bg)
+;     1    │ entry 2       │ entry 3
+;     2    │ entry 4       │ entry 5
+;     3    │ entry 6       │ entry 7
 ;
 ; ============================================================================
 ; CONTROLS
 ; ============================================================================
 ;
-;   ESC  : Exit to DOS
-;   H    : Toggle HSYNC sync (shows what happens without timing)
-;   V    : Toggle VSYNC sync (shows scrolling/tearing)
+;   ESC : Exit to DOS
+;   H   : Toggle HSYNC sync
+;   V   : Toggle VSYNC sync
 ;
 ; ============================================================================
 
@@ -78,14 +88,10 @@
 [ORG 0x100]
 
 ; ============================================================================
-; Port Definitions — short aliases for speed on PC1
+; Port Definitions — short aliases (saves ~4 cycles/OUT on V40)
 ; ============================================================================
-; On the PC1, ports 0x3Dx are mirrored at 0xDx.
-; Short form (immediate OUT/IN) saves ~4 cycles vs DX-indirect form.
-; See V6355D-Technical-Reference Section 3a.
 
-PORT_D8         equ 0xD8    ; Mode Control Register
-PORT_D9         equ 0xD9    ; Color Select Register (palette, intensity, bg)
+PORT_D9         equ 0xD9    ; Color Select Register
 PORT_DA         equ 0xDA    ; Status Register (bit 0=HSYNC, bit 3=VSYNC)
 PORT_DD         equ 0xDD    ; V6355D Palette/Register Address
 PORT_DE         equ 0xDE    ; V6355D Palette/Register Data
@@ -94,57 +100,34 @@ PORT_DE         equ 0xDE    ; V6355D Palette/Register Data
 ; Video Constants
 ; ============================================================================
 
-VIDEO_SEG       equ 0xB800  ; Standard CGA video memory segment
-SCREEN_HEIGHT   equ 200     ; Vertical resolution in pixels
-BYTES_PER_ROW   equ 80      ; 320 pixels / 4 pixels per byte
-BAND_WIDTH      equ 20      ; Each of 4 bands = 80 pixels = 20 bytes
+VIDEO_SEG       equ 0xB800
+SCREEN_HEIGHT   equ 200
+BYTES_PER_ROW   equ 80
 
 ; ============================================================================
-; Palette flip values
+; 0xD9 flip values
 ; ============================================================================
-; Port 0xD8: mode control with palette select in bit 5
-;   Mode 4 base = 0x0A (graphics=1, video_enable=1)
-;   Palette 0 = 0x0A (bit 5 clear)
-;   Palette 1 = 0x2A (bit 5 set)
-;
-; Port 0xD9: background color index in bits 3-0
-;   Even lines bg = 0 (entry 0)
-;   Odd  lines bg = 1 (entry 1)
 
-FLIP_D8_PAL0    equ 0x0A   ; Mode 4 + palette 0 (bit 5 = 0)
-FLIP_D8_PAL1    equ 0x2A   ; Mode 4 + palette 1 (bit 5 = 1)
-FLIP_D9_EVEN    equ 0x00   ; Background = entry 0
-FLIP_D9_ODD     equ 0x01   ; Background = entry 1
+PAL_EVEN        equ 0x00   ; palette 0, bg = entry 0
+PAL_ODD         equ 0x21   ; palette 1, bg = entry 1
 
 ; ============================================================================
 ; MAIN PROGRAM
 ; ============================================================================
 main:
-    ; ------------------------------------------------------------------
-    ; Initialize state
-    ; ------------------------------------------------------------------
     mov byte [hsync_enabled], 1
     mov byte [vsync_enabled], 1
 
-    ; ------------------------------------------------------------------
-    ; Set CGA 320x200x4 mode via BIOS
-    ; ------------------------------------------------------------------
-    mov ax, 0x0004          ; BIOS mode 4: 320x200 4-color CGA
+    ; Set CGA 320x200x4 mode
+    mov ax, 0x0004
     int 0x10
 
-    ; ------------------------------------------------------------------
-    ; Program V6355D palette entries 0-7 with custom RGB333 colors
-    ; ------------------------------------------------------------------
+    ; Program V6355D palette entries 0-7
     call program_palette
 
-    ; ------------------------------------------------------------------
-    ; Fill VRAM with 4 vertical bands (pixel values 0, 1, 2, 3)
-    ; ------------------------------------------------------------------
+    ; Fill screen with 4 vertical bands (pixel values 0-3)
     call fill_screen_bands
 
-    ; ------------------------------------------------------------------
-    ; Main loop: flip palettes per scanline each frame
-    ; ------------------------------------------------------------------
 .main_loop:
     call wait_vblank
     call render_frame
@@ -153,7 +136,7 @@ main:
     jne .main_loop
 
     ; ------------------------------------------------------------------
-    ; Exit: reset palette entry 0 to black, restore text mode
+    ; Exit: reset palette, restore text mode
     ; ------------------------------------------------------------------
     mov al, 0x40
     out PORT_DD, al
@@ -163,35 +146,33 @@ main:
     mov al, 0x80
     out PORT_DD, al
 
-    mov ax, 0x0003          ; BIOS mode 3: 80x25 text
+    mov ax, 0x0003
     int 0x10
-    mov ax, 0x4C00          ; DOS exit
+    mov ax, 0x4C00
     int 0x21
 
 ; ============================================================================
 ; program_palette - Write 8 RGB333 entries to V6355D palette RAM
 ; ============================================================================
-; Programs entries 0-7 using ports 0xDD/0xDE.
-; Palette write sequence: 0x40 → data stream → 0x80.
-; I/O delays (jmp short $+2) required between writes per V6355D spec.
+; Palette write sequence: 0x40 → stream 16 bytes → 0x80
+; I/O delays required between writes (V6355D 300ns tCYC)
 ; ============================================================================
 program_palette:
     cli
 
-    mov al, 0x40            ; Start palette write at entry 0
+    mov al, 0x40
     out PORT_DD, al
-    jmp short $+2           ; I/O delay (V6355D needs ~300ns between accesses)
+    jmp short $+2
 
-    ; Write 16 bytes (8 entries × 2 bytes: R then G<<4|B)
     mov si, palette_data
-    mov cx, 16
+    mov cx, 16              ; 8 entries × 2 bytes
 .pal_loop:
     lodsb
     out PORT_DE, al
-    jmp short $+2           ; I/O delay between writes
+    jmp short $+2
     loop .pal_loop
 
-    mov al, 0x80            ; End palette write mode
+    mov al, 0x80
     out PORT_DD, al
 
     sti
@@ -200,61 +181,46 @@ program_palette:
 ; ============================================================================
 ; fill_screen_bands - Draw 4 vertical bands using pixel values 0-3
 ; ============================================================================
-; In CGA 320x200x4 mode, each pixel is 2 bits packed 4 per byte:
-;   bits 7-6 = leftmost pixel, bits 1-0 = rightmost pixel
-;
-; Band layout (320 pixels = 80 bytes per row):
-;   Bytes  0-19: pixel value 0 = 0x00  (00 00 00 00)
-;   Bytes 20-39: pixel value 1 = 0x55  (01 01 01 01)
-;   Bytes 40-59: pixel value 2 = 0xAA  (10 10 10 10)
-;   Bytes 60-79: pixel value 3 = 0xFF  (11 11 11 11)
-;
-; CGA interlaced VRAM: even rows at 0x0000, odd rows at 0x2000.
+; Band 0: 0x00 (80 pixels), Band 1: 0x55, Band 2: 0xAA, Band 3: 0xFF
+; CGA interlaced: even rows at 0x0000, odd rows at 0x2000
 ; ============================================================================
 fill_screen_bands:
     push es
     mov ax, VIDEO_SEG
     mov es, ax
-
-    ; Fill both CGA banks
-    xor bx, bx             ; BX = bank base (0x0000 or 0x2000)
+    xor bx, bx             ; Bank base
 
 .fill_bank:
-    mov cx, 100             ; 100 rows per bank
+    mov cx, 100
     xor di, di
-    add di, bx              ; Start at bank base
+    add di, bx
 
 .fill_row:
     push cx
     push di
 
-    ; Band 0: 20 bytes of 0x00 (pixel value 0)
     mov cx, 10
     xor ax, ax
     cld
-    rep stosw
+    rep stosw               ; Band 0: pixel value 0
 
-    ; Band 1: 20 bytes of 0x55 (pixel value 1)
     mov cx, 10
     mov ax, 0x5555
-    rep stosw
+    rep stosw               ; Band 1: pixel value 1
 
-    ; Band 2: 20 bytes of 0xAA (pixel value 2)
     mov cx, 10
     mov ax, 0xAAAA
-    rep stosw
+    rep stosw               ; Band 2: pixel value 2
 
-    ; Band 3: 20 bytes of 0xFF (pixel value 3)
     mov cx, 10
     mov ax, 0xFFFF
-    rep stosw
+    rep stosw               ; Band 3: pixel value 3
 
     pop di
     add di, BYTES_PER_ROW
     pop cx
     loop .fill_row
 
-    ; Switch to odd bank if not done yet
     cmp bx, 0x2000
     jae .fill_done
     mov bx, 0x2000
@@ -265,107 +231,115 @@ fill_screen_bands:
     ret
 
 ; ============================================================================
-; render_frame - Per-scanline palette flip (the core technique)
+; render_frame - Per-scanline palette flip + entry 0 gradient
 ; ============================================================================
-; For each of the 200 visible scanlines:
-;   1. Wait for HSYNC edge (HBLANK start)
-;   2. OUT 0xD8: set palette 0 or 1 via bit 5 of Mode Control Register
-;   3. OUT 0xD9: set background color index (0 or 1)
-;   4. Alternate even/odd values each line
+; Each HBLANK does 5 OUTs:
+;   1. OUT 0xD9  = palette flip (alternates palette 0/1 + bg index)
+;   2. OUT 0xDD  = 0x40 (open palette write at entry 0)
+;   3. OUT 0xDE  = gradient R byte
+;   4. OUT 0xDE  = gradient G|B byte
+;   5. OUT 0xDD  = 0x80 (close palette write)
 ;
-; Timing: 2 OUTs = ~16 cycles in ~80 cycle HBLANK. Plenty of margin.
+; Total: ~77 cycles in ~80 cycle HBLANK window (tight but fits)
 ;
-; Register usage during loop:
-;   BL = current line's 0xD8 value (palette select)
-;   BH = current line's 0xD9 value (background index)
-;   DL = next line's 0xD8 value
-;   DH = next line's 0xD9 value
-;   CX = scanline counter
+; Register allocation:
+;   SI = pointer into gradient_data (advances by 2 each line)
+;   CX = scanline counter (200 → 0)
+;   BL = current line's 0xD9 value
+;   BH = next line's 0xD9 value
 ; ============================================================================
 render_frame:
-    cli                     ; No interrupts during palette writes
+    cli
 
-    mov cx, SCREEN_HEIGHT   ; 200 scanlines
+    mov si, gradient_data
+    mov cx, SCREEN_HEIGHT
+    mov bl, PAL_EVEN        ; First line = even (0x00)
+    mov bh, PAL_ODD         ; Next line = odd (0x21)
 
-    ; Even line values in BX, odd line values in DX
-    mov bl, FLIP_D8_PAL0    ; BL = 0x0A (palette 0)
-    mov bh, FLIP_D9_EVEN    ; BH = 0x00 (bg = entry 0)
-    mov dl, FLIP_D8_PAL1    ; DL = 0x2A (palette 1)
-    mov dh, FLIP_D9_ODD     ; DH = 0x01 (bg = entry 1)
-
-    ; Check if HSYNC sync is enabled
     cmp byte [hsync_enabled], 0
     je .no_hsync_loop
 
     ; ------------------------------------------------------------------
-    ; HSYNC-synchronized loop (stable display)
+    ; HSYNC-synchronized loop
     ; ------------------------------------------------------------------
 .scanline:
-    ; Wait for HSYNC LOW (beam is drawing visible pixels)
 .wait_low:
     in al, PORT_DA
     test al, 0x01
     jnz .wait_low
 
-    ; Wait for HSYNC HIGH (beam entering HBLANK — safe to write!)
 .wait_high:
     in al, PORT_DA
     test al, 0x01
     jz .wait_high
 
-    ; --- CRITICAL: 2 fast OUTs during HBLANK ---
-    mov al, bl              ; Palette select value
-    out PORT_D8, al         ; Port 0xD8: set palette 0 or 1
-    mov al, bh              ; Background index
-    out PORT_D9, al         ; Port 0xD9: set bg color
+    ; --- HBLANK: 5 fast OUTs ---
+    mov al, bl
+    out PORT_D9, al         ; 1. Palette flip
 
-    ; Swap even/odd values for next line
-    xchg bx, dx             ; BX ↔ DX (swaps both pairs at once)
+    mov al, 0x40
+    out PORT_DD, al         ; 2. Open palette at entry 0
+
+    lodsb
+    out PORT_DE, al         ; 3. Entry 0: R value
+
+    lodsb
+    out PORT_DE, al         ; 4. Entry 0: G<<4|B value
+
+    mov al, 0x80
+    out PORT_DD, al         ; 5. Close palette
+
+    ; Swap even/odd for next line
+    xchg bl, bh
 
     loop .scanline
-    jmp .done
+    jmp .done_render
 
     ; ------------------------------------------------------------------
-    ; Non-synchronized loop (educational: shows tearing without sync)
+    ; Non-synchronized loop
     ; ------------------------------------------------------------------
 .no_hsync_loop:
 .no_sync_line:
     mov al, bl
-    out PORT_D8, al
-    mov al, bh
     out PORT_D9, al
-    xchg bx, dx
+    mov al, 0x40
+    out PORT_DD, al
+    lodsb
+    out PORT_DE, al
+    lodsb
+    out PORT_DE, al
+    mov al, 0x80
+    out PORT_DD, al
+    xchg bl, bh
     loop .no_sync_line
 
-.done:
-    ; Reset to palette 0, bg=0 for clean frame start
-    mov al, FLIP_D8_PAL0
-    out PORT_D8, al
-    xor al, al
+.done_render:
+    ; Reset to palette 0, bg=0, entry 0 = black
+    mov al, PAL_EVEN
     out PORT_D9, al
+    mov al, 0x40
+    out PORT_DD, al
+    xor al, al
+    out PORT_DE, al
+    out PORT_DE, al
+    mov al, 0x80
+    out PORT_DD, al
 
     sti
     ret
 
 ; ============================================================================
-; wait_vblank - Wait for vertical blanking period
-; ============================================================================
-; Waits for VSYNC end → VSYNC start (catches the frame boundary).
-; After return: we are at the beginning of VBLANK.
-; The render loop's wait_low will then block until VBLANK ends and
-; the first visible scanline begins.
+; wait_vblank
 ; ============================================================================
 wait_vblank:
     cmp byte [vsync_enabled], 0
     je .skip
 
-    ; Wait for VSYNC to end (exit any current VBLANK)
 .wait_end:
     in al, PORT_DA
     test al, 0x08
     jnz .wait_end
 
-    ; Wait for VSYNC to start (visible area has finished)
 .wait_start:
     in al, PORT_DA
     test al, 0x08
@@ -375,27 +349,22 @@ wait_vblank:
     ret
 
 ; ============================================================================
-; check_keyboard - Handle user input
-; ============================================================================
-; Returns: AL = 0xFF if ESC pressed (exit), else 0
+; check_keyboard
 ; ============================================================================
 check_keyboard:
     mov ah, 0x01
     int 0x16
     jz .no_key
 
-    ; Read the key
     mov ah, 0x00
     int 0x16
 
-    ; ESC?
     cmp ah, 0x01
     jne .not_esc
     mov al, 0xFF
     ret
 
 .not_esc:
-    ; H - toggle HSYNC
     cmp al, 'h'
     je .toggle_h
     cmp al, 'H'
@@ -405,7 +374,6 @@ check_keyboard:
     jmp .no_key
 
 .not_h:
-    ; V - toggle VSYNC
     cmp al, 'v'
     je .toggle_v
     cmp al, 'V'
@@ -418,38 +386,88 @@ check_keyboard:
     ret
 
 ; ============================================================================
-; DATA SECTION
+; DATA
 ; ============================================================================
 
-; State variables
-hsync_enabled:  db 1            ; 1 = sync to HSYNC (stable), 0 = free-run
-vsync_enabled:  db 1            ; 1 = sync to VSYNC (no tear), 0 = free-run
+hsync_enabled:  db 1
+vsync_enabled:  db 1
 
 ; ============================================================================
-; V6355D Palette Data — 8 entries, RGB333 format
+; V6355D Palette — 8 entries (RGB333)
 ; ============================================================================
-; Format per entry: byte1 = R (bits 2-0, 0-7), byte2 = G<<4 | B (0x00-0x77)
+; Chosen for maximum contrast between even/odd palette pairs.
 ;
-; Entry │ Role                  │ Color       │ R  G  B
-; ──────┼───────────────────────┼─────────────┼────────
-;   0   │ bg on even lines      │ Black       │ 0  0  0
-;   1   │ bg on odd lines       │ Dark Blue   │ 0  0  5
-;   2   │ pixel 1, even lines   │ Red         │ 7  0  0
-;   3   │ pixel 1, odd lines    │ Cyan        │ 0  7  7
-;   4   │ pixel 2, even lines   │ Green       │ 0  7  0
-;   5   │ pixel 2, odd lines    │ Magenta     │ 7  0  7
-;   6   │ pixel 3, even lines   │ Yellow      │ 7  7  0
-;   7   │ pixel 3, odd lines    │ White       │ 7  7  7
+; Entry │ Role              │ Color         │  R   G   B
+; ──────┼───────────────────┼───────────────┼───────────
+;   0   │ bg even (gradient)│ Black (init)  │  0   0   0
+;   1   │ bg odd  (fixed)   │ Hot Pink      │  7   2   4
+;   2   │ px1 even (pal 0)  │ Bright Red    │  7   0   0
+;   3   │ px1 odd  (pal 1)  │ Bright Cyan   │  0   7   7
+;   4   │ px2 even (pal 0)  │ Bright Green  │  0   7   0
+;   5   │ px2 odd  (pal 1)  │ Bright Magenta│  7   0   7
+;   6   │ px3 even (pal 0)  │ Bright Yellow │  7   7   0
+;   7   │ px3 odd  (pal 1)  │ Bright White  │  7   7   7
 
 palette_data:
-    db 0x00, 0x00           ; 0: Black       (R=0, G=0, B=0)
-    db 0x00, 0x05           ; 1: Dark Blue   (R=0, G=0, B=5)
+    db 0x00, 0x00           ; 0: Black       (placeholder, overwritten by gradient)
+    db 0x07, 0x24           ; 1: Hot Pink    (R=7, G=2, B=4)
     db 0x07, 0x00           ; 2: Red         (R=7, G=0, B=0)
     db 0x00, 0x77           ; 3: Cyan        (R=0, G=7, B=7)
     db 0x00, 0x70           ; 4: Green       (R=0, G=7, B=0)
     db 0x07, 0x07           ; 5: Magenta     (R=7, G=0, B=7)
     db 0x07, 0x70           ; 6: Yellow      (R=7, G=7, B=0)
     db 0x07, 0x77           ; 7: White       (R=7, G=7, B=7)
+
+; ============================================================================
+; Gradient data — 200 entries × 2 bytes = 400 bytes
+; ============================================================================
+; Full spectrum rainbow: R → Y → G → C → B → M → R
+; Entry 0 is reprogrammed to these values per scanline.
+; Only even lines display entry 0 (bg=0); odd lines show entry 1 (bg=1).
+; So the visible gradient has 100 steps over 200 screen lines.
+
+gradient_data:
+    ; RED to YELLOW (33 lines: R=7, G increases 0→7)
+    db 7,0x00, 7,0x00, 7,0x00, 7,0x00, 7,0x10, 7,0x10, 7,0x10, 7,0x10
+    db 7,0x20, 7,0x20, 7,0x20, 7,0x20, 7,0x30, 7,0x30, 7,0x30, 7,0x30
+    db 7,0x40, 7,0x40, 7,0x40, 7,0x40, 7,0x50, 7,0x50, 7,0x50, 7,0x50
+    db 7,0x60, 7,0x60, 7,0x60, 7,0x60, 7,0x70, 7,0x70, 7,0x70, 7,0x70
+    db 7,0x70
+
+    ; YELLOW to GREEN (33 lines: R decreases 7→0, G=7)
+    db 7,0x70, 7,0x70, 7,0x70, 7,0x70, 6,0x70, 6,0x70, 6,0x70, 6,0x70
+    db 5,0x70, 5,0x70, 5,0x70, 5,0x70, 4,0x70, 4,0x70, 4,0x70, 4,0x70
+    db 3,0x70, 3,0x70, 3,0x70, 3,0x70, 2,0x70, 2,0x70, 2,0x70, 2,0x70
+    db 1,0x70, 1,0x70, 1,0x70, 1,0x70, 0,0x70, 0,0x70, 0,0x70, 0,0x70
+    db 0,0x70
+
+    ; GREEN to CYAN (33 lines: G=7, B increases 0→7)
+    db 0,0x70, 0,0x70, 0,0x70, 0,0x70, 0,0x71, 0,0x71, 0,0x71, 0,0x71
+    db 0,0x72, 0,0x72, 0,0x72, 0,0x72, 0,0x73, 0,0x73, 0,0x73, 0,0x73
+    db 0,0x74, 0,0x74, 0,0x74, 0,0x74, 0,0x75, 0,0x75, 0,0x75, 0,0x75
+    db 0,0x76, 0,0x76, 0,0x76, 0,0x76, 0,0x77, 0,0x77, 0,0x77, 0,0x77
+    db 0,0x77
+
+    ; CYAN to BLUE (33 lines: G decreases 7→0, B=7)
+    db 0,0x77, 0,0x77, 0,0x77, 0,0x77, 0,0x67, 0,0x67, 0,0x67, 0,0x67
+    db 0,0x57, 0,0x57, 0,0x57, 0,0x57, 0,0x47, 0,0x47, 0,0x47, 0,0x47
+    db 0,0x37, 0,0x37, 0,0x37, 0,0x37, 0,0x27, 0,0x27, 0,0x27, 0,0x27
+    db 0,0x17, 0,0x17, 0,0x17, 0,0x17, 0,0x07, 0,0x07, 0,0x07, 0,0x07
+    db 0,0x07
+
+    ; BLUE to MAGENTA (34 lines: R increases 0→7, B=7)
+    db 0,0x07, 0,0x07, 0,0x07, 0,0x07, 1,0x07, 1,0x07, 1,0x07, 1,0x07
+    db 2,0x07, 2,0x07, 2,0x07, 2,0x07, 3,0x07, 3,0x07, 3,0x07, 3,0x07
+    db 4,0x07, 4,0x07, 4,0x07, 4,0x07, 5,0x07, 5,0x07, 5,0x07, 5,0x07
+    db 6,0x07, 6,0x07, 6,0x07, 6,0x07, 7,0x07, 7,0x07, 7,0x07, 7,0x07
+    db 7,0x07, 7,0x07
+
+    ; MAGENTA to RED (34 lines: B decreases 7→0, R=7)
+    db 7,0x07, 7,0x07, 7,0x07, 7,0x07, 7,0x06, 7,0x06, 7,0x06, 7,0x06
+    db 7,0x05, 7,0x05, 7,0x05, 7,0x05, 7,0x04, 7,0x04, 7,0x04, 7,0x04
+    db 7,0x03, 7,0x03, 7,0x03, 7,0x03, 7,0x02, 7,0x02, 7,0x02, 7,0x02
+    db 7,0x01, 7,0x01, 7,0x01, 7,0x01, 7,0x00, 7,0x00, 7,0x00, 7,0x00
+    db 7,0x00, 7,0x00
 
 ; ============================================================================
 ; END OF PROGRAM

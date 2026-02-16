@@ -26,7 +26,7 @@ By flipping **port 0xD9 bit 5** every scanline during HBLANK, even lines display
 All findings verified on real PC1 hardware (February 2026):
 
 1. **Port 0xD9 bit 5** controls palette select on V6355D (VERIFIED WORKING).
-   Port 0xD8 bit 5 does NOT work for palette select — despite what some documentation claims.
+   Port 0xD8 bit 5 is the blink enable bit (text mode) and has no palette function in graphics mode — on any CGA-compatible hardware.
 
 2. **Pixel value 0 and border share the same source:** 0xD9 bits 3–0 select the V6355D palette entry used for both. This is a hardwired CGA rule — cannot be separated.
 
@@ -46,13 +46,11 @@ All findings verified on real PC1 hardware (February 2026):
 
 | File | Description | Status |
 |------|-------------|--------|
-| `cgaflip1.asm` | Starter template / planning file. Uses 0xD8 for palette select (standard CGA approach). Not fully implemented. | Template |
-| `cgaflip2.asm` | First working palette flip demo. Static 8-color display with 2 OUTs per scanline (0xD8 + 0xD9). Early version — comments reference 0xD8 for palette select, which was later found to not work on V6355D. | Early version |
-| `cgaflip3.asm` | **Palette flip + HBLANK gradient.** Flips palette via 0xD9 and reprograms entry 2 to a rainbow gradient every scanline — all 9 OUTs fit within HBLANK. Solid black border. Includes detailed "Lessons Learned" section. | **Verified working** |
-| `cgaflip4.asm` | **Visible-area reprogramming experiment.** Only 1 OUT during HBLANK (palette flip). All 8 entries streamed from gradient table during visible area (~160 cycles). **CAUSES FLICKERING** — the palette write protocol (open/stream/close via 0xDD/0xDE) disrupts V6355D output during visible area. See cgaflip5 for conclusions. | **Flickering confirmed** |
+| `cgaflip2.asm` | **Palette flip + HBLANK gradient (entry 0).** First working palette flip via 0xD9 bit 5. Reprograms entry 0 per scanline for a rainbow gradient in band 0 (alternating with hot pink on odd lines). 5 OUTs per HBLANK. Border flickers because even/odd bg indices differ (entry 0 vs entry 1). | **Verified working** |
+| `cgaflip3.asm` | **Palette flip + HBLANK gradient (entry 2).** Refined version — gradient on entry 2 instead of entry 0, giving a solid black border on all lines. 9 OUTs per HBLANK. Includes detailed "Lessons Learned" section with hardware findings. | **Verified working** |
+| `cgaflip4.asm` | **Visible-area reprogramming experiment.** Only 1 OUT during HBLANK (palette flip). All 8 entries streamed from gradient table during the visible area (~160 cycles). **CAUSES FLICKERING** — the palette write protocol (open/stream/close via 0xDD/0xDE) disrupts V6355D output during visible area. See cgaflip5 for conclusions. | **Flickering confirmed** |
 | `cgaflip5.asm` | **Palette flip proof-of-concept (split-screen).** Tests palette flip stability WITHOUT any palette streaming. Top half = palette 0 (Red/Green/Blue), bottom half = palette 1 (Yellow/Cyan/Magenta). **6 colors + black, perfectly stable, zero flicker.** Proves that palette flip via 0xD9 is rock solid; the blinking in cgaflip4 was caused by the palette write protocol, not the flip itself. | **Verified stable** |
 | `*.com` | Assembled COM executables for each version. | Binary |
-| `*.lst` | NASM listing files. | Listing |
 | `*.jpg` | Photos from real PC1 hardware showing the output. | Hardware photos |
 
 ## Build
@@ -60,8 +58,10 @@ All findings verified on real PC1 hardware (February 2026):
 Requires [NASM](https://www.nasm.us/):
 
 ```
-nasm cgaflip3.asm -o cgaflip3.com -l cgaflip3.lst
-nasm cgaflip4.asm -o cgaflip4.com -l cgaflip4.lst
+nasm cgaflip2.asm -o cgaflip2.com
+nasm cgaflip3.asm -o cgaflip3.com
+nasm cgaflip4.asm -o cgaflip4.com
+nasm cgaflip5.asm -o cgaflip5.com
 ```
 
 ## Controls
