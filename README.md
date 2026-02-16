@@ -46,7 +46,7 @@ Raster bar effects using palette manipulation and border color changes.
 - `demos/03-raster-bars/rbars1.asm` through `rbars4.asm` - Raster bar demos
 - `demos/03-raster-bars/rbars-border.asm` - Border-only raster bars
 - `demos/03-raster-bars/rbars-full.asm` - Full-screen raster bars
-- `demos/03-raster-bars/timing.asm` - Timing test utility
+
 
 ### 04-Demos
 General graphics demos showcasing the hidden 160×200×16 mode.
@@ -92,6 +92,9 @@ Utility programs for testing and development.
 
 **Files:**
 - `hpos.asm` / `hpos.com` - Horizontal position test utility
+- `timing.asm` / `timing.com` - HSYNC/VBLANK timing measurement
+- `cga_scroll_test.asm` / `cga_scroll_test.com` - CGA CRTC R12/R13 hardware scroll test
+- `V6355D_scroll_test.asm` / `V6355D_scroll_test.com` - Register 0x64 vertical adjust test
 - `make_test_bmp.ps1` - PowerShell script to generate test BMP images
 - `test_bands.bmp`, `test_vstripe.bmp` - Test images
 
