@@ -1,14 +1,15 @@
 ; ============================================================================
-; DEMO5.ASM - Scrolling BMP Image with Animated Raster Bars
+; DEMO5B.ASM - Scrolling BMP Image (Linear RAM Buffer)
 ; Olivetti Prodest PC1 - V6355D 160x200x16 Hidden Graphics Mode
 ; Written for NASM - NEC V40 @ 8 MHz (8086 instruction set only)
 ; By RetroErik - 2026 with GitHub Copilot
 ;
 ; Description:
 ;   Loads a 4-bit BMP image and scrolls/pans it around the screen using
-;   sine-wave motion, while two horizontal raster bars move independently.
-;   The bars use reserved palette entries 14 and 15 which are updated
-;   during VBlank for smooth, flicker-free color cycling.
+;   sine-wave Lissajous motion. Uses a LINEAR RAM buffer layout.
+;
+;   Compare with demo5c which uses an INTERLACED RAM buffer matching
+;   VRAM layout for faster block copies.
 ;
 ; ============================================================================
 ; RAM BUFFER DESIGN
@@ -39,112 +40,17 @@
 ;   - 16,000 bytes total (160×200×4-bit = 80 bytes × 200 rows)
 ;   - Row N at offset: N * 80
 ;
-; RASTER BAR RESTORE TECHNIQUE:
-;   Instead of backing up VRAM scanlines before drawing bars, we use the
-;   RAM image buffer as the master copy. When restoring scanlines after
-;   the bar passes, we copy from RAM→VRAM using REP MOVSB/MOVSW.
-;   This avoids slow VRAM→RAM reads during the raster effect.
-;
 ; ============================================================================
-; HOW THE RASTER BARS WORK (Current Implementation)
+; RASTER BARS (DISABLED)
 ; ============================================================================
 ;
-; PALETTE-CYCLING SOLID BARS:
-;   The bars are drawn as solid horizontal strips using fixed palette indices
-;   (14 and 15). The VRAM pixels never change index value during animation -
-;   they always contain 0xEE (palette 14) or 0xFF (palette 15).
-;
-;   The "color animation" happens by changing what RGB color those palette
-;   indices actually display. During VBlank, we write new RGB values to
-;   palette registers 14 and 15 in the V6355D. This instantly changes the
-;   displayed color of all pixels using those indices.
-;
-;   This is extremely efficient because:
-;   - We only write 4 bytes to the palette per frame (2 colors × 2 bytes)
-;   - No VRAM writes needed for color changes
-;   - Smooth gradients with zero flicker (palette changes are atomic)
-;
-;   V6355D Color System:
-;   - 512 possible colors (3 bits R, 3 bits G, 3 bits B = 8×8×8)
-;   - 16 on-screen palette entries, each can be ANY of the 512 colors
-;   - Format: 2 bytes per color:
-;       Byte 1: Red intensity (bits 0-2, values 0-7)
-;       Byte 2: Green (bits 4-6) | Blue (bits 0-2)
-;   - Palette starts at register 0x40, so color N is at 0x40 + (N*2)
-;
-;   The 16-entry gradient tables (green_gradient, blue_gradient) define
-;   the color wave animation. Each frame advances through the table,
-;   creating a smooth "breathing" or "pulsing" color effect.
-;
-; ============================================================================
-; ALTERNATIVE TECHNIQUE #1: Multi-Color Gradient Bars (Palette Trade-off)
-; ============================================================================
-;
-; Instead of 1 solid color per bar, use 3-4 palette entries per bar to
-; draw actual gradient bands (dark edges → bright center → dark edges):
-;
-;   Palette allocation example:
-;   - Colors 0-9:   BMP image (10 colors)
-;   - Colors 10-12: Bar 1 gradient (dark red, red, bright red)
-;   - Colors 13-15: Bar 2 gradient (dark cyan, cyan, bright cyan)
-;
-;   Each bar is drawn with multiple horizontal bands:
-;   - Scanlines 0-3:   palette 10 (dark)
-;   - Scanlines 4-7:   palette 11 (medium)  
-;   - Scanlines 8-11:  palette 12 (bright) ← center
-;   - Scanlines 12-15: palette 11 (medium)
-;   - Scanlines 16-19: palette 10 (dark)
-;
-;   PROS:
-;   - True C64-style gradient appearance
-;   - Still benefits from palette cycling (all gradient colors shift together)
-;
-;   CONS:
-;   - Fewer colors available for the BMP image (10 instead of 14)
-;   - More complex draw_strip code (must track multiple palette indices)
-;   - Images with >10 colors will look degraded
-;
-; ============================================================================
-; ALTERNATIVE TECHNIQUE #2: HSync Palette Switching (Copper-bar Style)
-; ============================================================================
-;
-; Use only 1 palette entry per bar, but change its color MID-FRAME at
-; specific scanlines during active display:
-;
-;   During frame drawing:
-;   - Wait for scanline 50 → set palette 14 = dark green
-;   - Wait for scanline 53 → set palette 14 = medium green
-;   - Wait for scanline 56 → set palette 14 = bright green (center)
-;   - Wait for scanline 59 → set palette 14 = medium green
-;   - Wait for scanline 62 → set palette 14 = dark green
-;
-;   The result: a single palette entry appears as multiple colors within
-;   the same frame! This is how the Amiga "copper" created rainbow bars.
-;
-;   PROS:
-;   - Uses only 1 palette entry per bar (14 image colors preserved!)
-;   - Theoretically unlimited gradient steps
-;   - True demoscene technique
-;
-;   CONS:
-;   - Requires cycle-exact timing synchronized with the raster beam
-;   - Must reprogram palette during HBlank (~10-15 microseconds window)
-;   - V6355D I/O is slow; may not complete within HBlank
-;   - CPU must poll PORT_STATUS for HSync timing (wastes cycles)
-;   - Very difficult to stabilize - prone to visual "wobble" or jitter
-;   - The PC1's 8MHz NEC V40 may not be fast enough for stable results
-;
-;   On the Amiga, dedicated hardware (Copper coprocessor) handled this.
-;   The PC1 has no such hardware, making this technique challenging.
-;
-; ============================================================================
-; VBlank Timing & Palette Safety
-; ============================================================================
-;
-;   - All palette updates occur during VBlank (bit 3 of PORT_STATUS)
-;   - VBlank is ~1.4ms on PAL timing - enough time for palette writes
-;   - Writing during VBlank avoids "snow" artifacts and color tearing
-;   - Bar strip drawing also occurs during VBlank for clean animation
+; This demo originally included animated VRAM-drawn raster bars using
+; palette entries 14/15 with palette cycling. They've been disabled because:
+;   - Raster bars are thoroughly covered in demo1-demo4
+;   - The bars write to VRAM (REP STOSB strips), adding overhead that
+;     distorts the linear vs interlaced RAM buffer speed comparison
+;   - The bar routines and data are still present — uncomment the calls
+;     in the main loop to re-enable them
 ;
 ; Usage: DEMO4 filename.bmp
 ;        Press any key to exit
@@ -425,12 +331,10 @@ main:
     call wait_vblank
     
     ; --------------------------------------------------------------------
-    ; STEP 2: Update palette entries 14 and 15 (during VBlank)
-    ; This is the key to smooth color cycling without flicker.
-    ; We change what colors 14/15 display, not the pixels themselves.
-    ; Safe because VBlank = no scanlines being drawn = no tearing
+    ; STEP 2: Raster bar palette update (DISABLED - see header notes)
+    ; Uncomment to re-enable animated raster bars
     ; --------------------------------------------------------------------
-    call update_bar_palette
+    ; call update_bar_palette
     
     ; --------------------------------------------------------------------
     ; STEP 3: Update image position using sine wave
@@ -452,11 +356,10 @@ main:
     call update_bar_positions
     
     ; --------------------------------------------------------------------
-    ; STEP 6: Draw new bar strips (on top of scrolled image)
-    ; Draw bars using palette 14/15
-    ; Note: No restore needed - image copy already refreshed background
+    ; STEP 6: Raster bar strip drawing (DISABLED - see header notes)
+    ; Uncomment to re-enable animated raster bars
     ; --------------------------------------------------------------------
-    call draw_bar_strips_no_restore
+    ; call draw_bar_strips_no_restore
     
     ; --------------------------------------------------------------------
     ; STEP 7: Check for keypress (exit on any key)

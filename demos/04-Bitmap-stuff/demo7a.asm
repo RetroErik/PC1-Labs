@@ -11,6 +11,14 @@
 ;
 ; This proves that V6355D's "6845 restricted mode" supports hardware
 ; scrolling via standard CGA CRTC Start Address registers.
+;
+; KNOWN BUG - Horizontal shift when scrolling past one screenful:
+;   The image is 8000 bytes per bank, but each CGA interlaced bank is
+;   8192 bytes (0x2000). The 192-byte gap at the end of each bank causes
+;   subsequent rows to appear shifted ~96 pixels to the right when R12/R13
+;   wraps past the image boundary. Demo7c/demo7 solve this by using a RAM
+;   buffer and copying only the visible 200-row viewport to VRAM, so the
+;   CRTC start address never needs to cross the bank gap.
 ; ============================================================================
 
 [BITS 16]
@@ -201,7 +209,7 @@ main:
     add ax, BYTES_PER_LINE
     cmp ax, 8000             ; Max scroll = 100 lines worth
     jbe .update_scroll
-    mov ax, 800
+    mov ax, 8000            ; BUG: was 800 (typo)
 
 .update_scroll:
     mov [scroll_offset], ax

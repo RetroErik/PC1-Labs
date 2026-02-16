@@ -144,6 +144,35 @@ These images help determine how the V6355D handles transparency and raster effec
 
 ---
 
+### test_r12r13.asm — R12/R13 Hardware Scroll Diagnostic
+
+Loads a 320×200 BMP directly to VRAM and tests CGA CRTC R12/R13 hardware scrolling. Uses border color changes at each stage (RED→GREEN→CYAN→MAGENTA→BLACK) for diagnostic feedback. Originally `demo7_simple.asm`.
+
+**Files:** `test_r12r13.asm` / `test_r12r13.com` (441 lines)
+
+**Usage:**
+```
+test_r12r13.com filename.bmp
+```
+
+**Controls:**
+| Key | Action |
+|-----|--------|
+| `,` (comma) | Scroll up |
+| `.` (period) | Scroll down |
+| **ESC** | Exit |
+
+**Diagnostic border colors:**
+- Red = startup
+- Green = file opened
+- Cyan = graphics mode enabled
+- Magenta = loading image
+- Black = ready for scrolling
+
+**Note:** Has the same 192-byte bank gap bug as demo7a — scrolling past one screenful shifts the image ~96 pixels right. This is expected for a pure R12/R13 test; see demo7b for the software viewport solution.
+
+---
+
 ## Building
 
 ```bash

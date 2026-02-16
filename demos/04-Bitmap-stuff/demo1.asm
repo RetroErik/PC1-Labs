@@ -48,6 +48,12 @@
 ;
 ; ============================================================================
 ;
+; Timing note:
+;   This version uses 8-bit port aliases (0xD9/0xDA) instead of full CGA
+;   addresses (0x3D9/0x3DA). This allows 'out PORT_COLOR, al' (immediate
+;   8-bit port) without swapping DX each scanline, saving ~8 clocks in the
+;   critical HSYNC→OUT path. The result is stable, flicker-free raster bars.
+;
 ; Usage: DEMO1 image.bmp
 ;        Any key - Exit to DOS
 ;
@@ -56,7 +62,7 @@
 ; ============================================================================
 
 [BITS 16]
-[CPU 8086]                      ; NEC V40 doesn't support all 80186 instructions
+[CPU 8086]                      ; Force 8086-compatible instructions for NEC V40
 [ORG 0x100]
 
 ; ============================================================================
@@ -64,16 +70,12 @@
 ; ============================================================================
 VIDEO_SEG       equ 0xB000      ; PC1 video RAM segment
 
-; Yamaha V6355D I/O Ports (using full CGA addresses like rbars4)
-PORT_REG_ADDR   equ 0x3DD       ; Register address port
-PORT_REG_DATA   equ 0x3DE       ; Register data port
-PORT_MODE       equ 0x3D8       ; Mode control register
-PORT_COLOR      equ 0x3D9       ; Color select (border/overscan color)
-PORT_STATUS     equ 0x3DA       ; Status (bit 0=hsync, bit 3=vblank)
-
-; Alternate port addresses (8-bit) - these work for palette access
-PORT_PAL_ADDR   equ 0xDD        ; Palette register address (8-bit alias)
-PORT_PAL_DATA   equ 0xDE        ; Palette register data (8-bit alias)
+; Yamaha V6355D I/O Ports (aliased from 0x3Dx to 0xDx on PC1)
+PORT_REG_ADDR   equ 0xDD        ; Register address port
+PORT_REG_DATA   equ 0xDE        ; Register data port
+PORT_MODE       equ 0xD8        ; Mode control register
+PORT_COLOR      equ 0xD9        ; Color select (border/overscan color)
+PORT_STATUS     equ 0xDA        ; Status (bit 0=hsync, bit 3=vblank)
 
 ; BMP File Header offsets
 BMP_SIGNATURE   equ 0           ; 'BM' signature (2 bytes)
@@ -203,18 +205,14 @@ main:
     
     ; Enable graphics mode with video blanked
     call enable_graphics_mode
-    
-    ; Wait for VBlank before palette operations
-    call wait_vblank
-    
-    ; Set palette from BMP file (during VBlank)
-    call set_bmp_palette
-    
-    ; Force palette 0 to exact black for clean background (during VBlank)
-    call force_black_palette0
+    mov al, 0x42            ; Graphics mode, video OFF
+    out PORT_MODE, al
     
     ; Clear screen
     call clear_screen
+    
+    ; Set palette from BMP
+    call set_bmp_palette
     
     ; Display BMP image
     call decode_bmp
@@ -224,10 +222,13 @@ main:
     mov ah, 0x3E
     int 0x21
     
-    ; Enable video
-    mov dx, PORT_MODE
-    mov al, 0x4A
-    out dx, al
+    ; Reset border to black
+    xor al, al
+    out PORT_COLOR, al
+    
+    ; Enable video - image appears!
+    mov al, 0x4A            ; Graphics mode, video ON
+    out PORT_MODE, al
     
     ; ========================================================================
     ; PHASE 2: Raster bar animation loop
@@ -264,11 +265,11 @@ main:
     
 .build_table:
     ; Build table BEFORE waiting - we have time during display
-    call build_scanline_table      ; ENABLED for testing
+    call build_scanline_table
     
     ; Now wait for vblank to end (display starts) and immediately render
     call wait_vblank
-    call render_raster_bars        ; ENABLED for testing
+    call render_raster_bars
     
     ; Check for keypress
     mov ah, 0x01
@@ -308,10 +309,8 @@ main:
 
 %if 1  ; ENABLED - raster bar subroutines
 ; ============================================================================
-; build_scanline_table - Pre-compute colors for both bars (200 scanlines each)
-; bar1_scanline = colors for palette 14 (bar1)
-; bar2_scanline = colors for palette 15 (bar2)
-; 0x00 = black (no bar on this scanline)
+; build_scanline_table - Pre-compute colors for all 200 scanlines
+; Uses 0 for "no bar" (transparent - shows image below)
 ; ============================================================================
 build_scanline_table:
     push ax
@@ -321,28 +320,28 @@ build_scanline_table:
     push si
     push di
     
-    ; Clear bar1 table to 0 (black = no bar)
-    mov di, bar1_scanline
+    ; Clear table to 0xFF (means "no bar - transparent")
+    mov di, scanline_colors
     mov cx, SCREEN_HEIGHT
-.clear1:
-    mov byte [di], 0
+.clear_loop:
+    mov byte [di], 0xFF
     inc di
-    loop .clear1
+    loop .clear_loop
     
-    ; Clear bar2 table to 0 (black = no bar)
-    mov di, bar2_scanline
-    mov cx, SCREEN_HEIGHT
-.clear2:
-    mov byte [di], 0
-    inc di
-    loop .clear2
+    ; Check which bar should be in front
+    cmp byte [front_bar], 0
+    jnz .red_in_front
     
-    ; Draw bar1 (red gradient) into bar1_scanline
-    call draw_bar1
+    ; Green in front: draw red first, then green on top
+    call draw_red_bar
+    call draw_green_bar
+    jmp .done_drawing
     
-    ; Draw bar2 (green gradient) into bar2_scanline
-    call draw_bar2
+.red_in_front:
+    call draw_green_bar
+    call draw_red_bar
     
+.done_drawing:
     pop di
     pop si
     pop dx
@@ -352,10 +351,9 @@ build_scanline_table:
     ret
 
 ; ----------------------------------------------------------------------------
-; draw_bar1 - Draw bar 1 gradient into bar1_scanline table
-; Uses V6355 RGBx format for actual palette values
+; draw_red_bar - Draw bar 1 (red gradient, palette 1-7)
 ; ----------------------------------------------------------------------------
-draw_bar1:
+draw_red_bar:
     mov al, [bar1_y]
     xor ah, ah
     mov di, ax
@@ -368,17 +366,16 @@ draw_bar1:
     sub di, SCREEN_HEIGHT
 .in_range:
     mov al, [si]
-    mov [bar1_scanline + di], al
+    mov [scanline_colors + di], al
     inc di
     inc si
     loop .draw_loop
     ret
 
 ; ----------------------------------------------------------------------------
-; draw_bar2 - Draw bar 2 gradient into bar2_scanline table
-; Uses V6355 RGBx format for actual palette values
+; draw_green_bar - Draw bar 2 (green gradient, palette 8-14)
 ; ----------------------------------------------------------------------------
-draw_bar2:
+draw_green_bar:
     mov al, [bar2_y]
     xor ah, ah
     mov di, ax
@@ -391,102 +388,64 @@ draw_bar2:
     sub di, SCREEN_HEIGHT
 .in_range:
     mov al, [si]
-    mov [bar2_scanline + di], al
+    mov [scanline_colors + di], al
     inc di
     inc si
     loop .draw_loop
     ret
 
 ; ============================================================================
-; render_raster_bars - Simple PORT_COLOR (working baseline)
-; Shows bars in border only - BUT we can investigate transparency
+; render_raster_bars - Per-scanline color changes via PORT_COLOR
+; 0xFF = transparent (output 0 = black border, shows image)
 ; ============================================================================
 render_raster_bars:
     push ax
     push bx
-    push cx
     push dx
     push si
     
     cli
     
-    mov si, bar1_scanline       ; SI = pointer to color table (like rbars4)
-    xor bx, bx                  ; BX = scanline counter
+    mov si, scanline_colors
+    xor bx, bx
     mov dx, PORT_STATUS
     
 .scanline_loop:
-    ; Wait for hsync low (like rbars4)
 .wait_low:
     in al, dx
     test al, 0x01
     jnz .wait_low
     
-    ; Wait for hsync high (like rbars4)
 .wait_high:
     in al, dx
     test al, 0x01
     jz .wait_high
     
-    ; Output color from table (like rbars4)
-    mov al, [bar2_scanline + bx]
-    or al, al
-    jnz .out
-    mov al, [bar1_scanline + bx]
-.out:
-    mov dx, PORT_COLOR          ; Use DX for 16-bit port address
-    out dx, al
-    mov dx, PORT_STATUS         ; Restore DX for status reads
+    ; Output color (0xFF = transparent, output 0)
+    mov al, [si]
+    cmp al, 0xFF
+    jne .output_color
+    xor al, al              ; Transparent = black border (shows image)
+.output_color:
+    out PORT_COLOR, al
     
+    inc si
     inc bx
     cmp bx, SCREEN_HEIGHT
     jb .scanline_loop
     
     ; Reset to black after frame
-    mov dx, PORT_COLOR
     xor al, al
-    out dx, al
+    out PORT_COLOR, al
     
     sti
     
     pop si
     pop dx
-    pop cx
     pop bx
     pop ax
     ret
-%endif  ; End of raster bar subroutines
-
-; ============================================================================
-; set_rbars4_palette - Set palette exactly like rbars4 does
-; ============================================================================
-set_rbars4_palette:
-    push ax
-    push cx
-    push dx
-    push si
-    
-    cli
-    
-    mov dx, PORT_REG_ADDR
-    mov al, 0x40
-    out dx, al
-    
-    mov dx, PORT_REG_DATA
-    mov si, rbars4_palette
-    mov cx, 32                  ; 16 colors * 2 bytes
-    
-.pal_loop:
-    lodsb
-    out dx, al
-    loop .pal_loop
-    
-    sti
-    
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+%endif  ; End of disabled raster bar subroutines
 
 ; ============================================================================
 ; wait_vblank - Wait for vertical blanking interval
@@ -512,16 +471,32 @@ wait_vblank:
     ret
 
 ; ============================================================================
-; enable_graphics_mode - Enable 160x200x16 hidden mode (simplified like rbars4)
+; enable_graphics_mode - Enable 160x200x16 hidden mode
 ; ============================================================================
 enable_graphics_mode:
     push ax
     push dx
     
-    ; Just set mode register like rbars4 does
-    mov dx, PORT_MODE
+    ; Set monitor control register 0x65
+    mov al, 0x65
+    out PORT_REG_ADDR, al
+    jmp short $+2
+    mov al, 0x09            ; 200 lines, PAL, color
+    out PORT_REG_DATA, al
+    jmp short $+2
+    jmp short $+2
+    
+    ; Unlock 16-color mode
     mov al, 0x4A
-    out dx, al
+    out PORT_MODE, al
+    jmp short $+2
+    jmp short $+2
+    
+    ; Set border color = black
+    xor al, al
+    out PORT_COLOR, al
+    jmp short $+2
+    jmp short $+2
     
     pop dx
     pop ax
@@ -551,51 +526,7 @@ clear_screen:
     ret
 
 ; ============================================================================
-; clear_bottom_half - Fill bottom 100 lines with color 0 for raster bar area
-; CGA interleaved: even rows at offset 0, odd rows at offset 0x2000
-; Bottom half = rows 100-199
-; ============================================================================
-clear_bottom_half:
-    push ax
-    push cx
-    push di
-    push es
-    
-    mov ax, VIDEO_SEG
-    mov es, ax
-    xor ax, ax              ; Color 0
-    
-    ; Clear even rows 100-198 (50 rows)
-    ; Row 100 starts at offset: (100/2) * 80 = 50 * 80 = 4000 = 0x0FA0
-    mov di, 50 * 80         ; Start at row 100 (even)
-    mov cx, 50              ; 50 even rows (100, 102, 104... 198)
-.clear_even:
-    push cx
-    mov cx, 40              ; 80 bytes / 2 = 40 words per row
-    rep stosw
-    pop cx
-    loop .clear_even
-    
-    ; Clear odd rows 101-199 (50 rows)
-    ; Row 101 starts at offset: 0x2000 + (101/2) * 80 = 0x2000 + 50*80 = 0x2FA0
-    mov di, 0x2000 + (50 * 80)
-    mov cx, 50              ; 50 odd rows (101, 103, 105... 199)
-.clear_odd:
-    push cx
-    mov cx, 40              ; 40 words per row
-    rep stosw
-    pop cx
-    loop .clear_odd
-    
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
-
-; ============================================================================
 ; set_bmp_palette - Set palette from BMP file
-; Copied exactly from working Loadbmp.asm, with 80186 shr al,5 expanded
 ; ============================================================================
 set_bmp_palette:
     push ax
@@ -604,96 +535,61 @@ set_bmp_palette:
     push dx
     push si
     
-    cli                     ; Disable interrupts
+    cli
     
-    ; Enable palette write
     mov al, 0x40
-    out PORT_PAL_ADDR, al
+    out PORT_REG_ADDR, al
     jmp short $+2
     
-    ; Convert 16 colors from BMP format (BGRA) to 6355 format
-    ; Palette starts at offset 54 in bmp_header
     mov si, bmp_header + 54
     mov cx, 16
     
 .palette_loop:
-    ; BMP stores as: Blue, Green, Red, Alpha (we ignore alpha)
-    lodsb                   ; Blue (0-255)
-    mov bl, al              ; Save blue in BL
+    lodsb                   ; Blue
+    mov bl, al
     
-    lodsb                   ; Green (0-255)
-    mov bh, al              ; Save green in BH
+    lodsb                   ; Green
+    mov bh, al
     
-    lodsb                   ; Red (0-255)
-    ; Need to shift right 5, but can't use 80186 shr al,5
-    ; Use CL for shift count (save CX first)
-    push cx
-    mov cl, 5
-    shr al, cl              ; Convert to 3-bit (0-7)
-    pop cx
-    out PORT_PAL_DATA, al   ; Write Red to even register
+    lodsb                   ; Red
+    ; 8086: shift right 5 times (can't use CL - it's loop counter!)
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    out PORT_REG_DATA, al
     jmp short $+2
     
-    ; Combine Green and Blue
     mov al, bh              ; Green
-    and al, 0xE0            ; Keep upper 3 bits
-    push cx
-    mov cl, 1
-    shr al, cl              ; Shift to bits 4-6
-    pop cx
-    mov ah, al              ; Save in AH
+    and al, 0xE0
+    shr al, 1
+    mov ah, al
     
     mov al, bl              ; Blue
-    push cx
-    mov cl, 5
-    shr al, cl              ; Convert to 3-bit
-    pop cx
-    or al, ah               ; Combine: Green (4-6) | Blue (0-2)
-    out PORT_PAL_DATA, al   ; Write GB to odd register
+    ; 8086: shift right 5 times
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    or al, ah
+    out PORT_REG_DATA, al
     jmp short $+2
     
-    lodsb                   ; Skip alpha byte
+    lodsb                   ; Skip alpha
     
     loop .palette_loop
     
-    ; Disable palette write
     mov al, 0x80
-    out PORT_PAL_ADDR, al
+    out PORT_REG_ADDR, al
     
-    sti                     ; Re-enable interrupts
+    sti
     
     pop si
     pop dx
     pop cx
     pop bx
-    pop ax
-    ret
-
-; ============================================================================
-; force_black_palette0 - Force palette entry 0 to exact black (0x00, 0x00)
-; ============================================================================
-force_black_palette0:
-    push ax
-    
-    cli
-    
-    mov al, 0x40            ; Enable palette write, start at color 0
-    out PORT_PAL_ADDR, al
-    jmp short $+2
-    
-    xor al, al              ; 0x00 = red byte (R=0)
-    out PORT_PAL_DATA, al
-    jmp short $+2
-    
-    xor al, al              ; 0x00 = green/blue byte (G=0, B=0)
-    out PORT_PAL_DATA, al
-    jmp short $+2
-    
-    mov al, 0x80            ; Disable palette write (IMPORTANT!)
-    out PORT_PAL_ADDR, al
-    
-    sti
-    
     pop ax
     ret
 
@@ -763,7 +659,7 @@ decode_bmp:
 .width_done:
     
     mov ax, [bmp_header + BMP_HEIGHT]
-    cmp ax, 200             ; Full height display
+    cmp ax, 200
     jbe .height_ok
     mov ax, 200
 .height_ok:
@@ -903,8 +799,8 @@ decode_bmp:
 ; Data Section
 ; ============================================================================
 
-msg_info    db 'RBARS5 - BMP with Raster Bars for Olivetti Prodest PC1', 0x0D, 0x0A
-            db 'Usage: RBARS5 image.bmp', 0x0D, 0x0A
+msg_info    db 'DEMO1 - BMP with Raster Bars for Olivetti Prodest PC1', 0x0D, 0x0A
+            db 'Usage: DEMO1 image.bmp', 0x0D, 0x0A
             db 'Press any key to exit.', 0x0D, 0x0A, '$'
 msg_file_err db 'Error: Cannot open file', 0x0D, 0x0A, '$'
 msg_not_bmp db 'Error: Not a valid BMP file', 0x0D, 0x0A, '$'
@@ -927,10 +823,8 @@ bar2_sine_idx:  db 0
 front_bar:      db 0
 last_bar1_above: db 1
 
-; Pre-computed scanline colors for each bar
-; These are V6355 RGB values (RRRGGGBx format), not palette indices!
-bar1_scanline: times SCREEN_HEIGHT db 0   ; Bar 1 colors for palette 14
-bar2_scanline: times SCREEN_HEIGHT db 0   ; Bar 2 colors for palette 15
+; Pre-computed scanline colors (0xFF = transparent)
+scanline_colors: times SCREEN_HEIGHT db 0
 
 ; Sine table (256 entries, values 0-100, centered at 50)
 sine_table:
@@ -951,40 +845,31 @@ sine_table:
     db 15, 16, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29
     db 30, 31, 32, 34, 35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 47, 48
 
-; Red gradient - palette indices for PORT_COLOR (border color)
-; Uses palette entries that should have red colors
+; Red gradient pattern (palette indices 1-7, then 7-1)
 red_gradient:
-    times LINES_PER_COLOR db 4      ; Dark red (CGA red)
-    times LINES_PER_COLOR db 4
-    times LINES_PER_COLOR db 12     ; Light red
-    times LINES_PER_COLOR db 12
-    times LINES_PER_COLOR db 12
-    times LINES_PER_COLOR db 15     ; White (brightest)
-    times LINES_PER_COLOR db 15
-    times LINES_PER_COLOR db 12     ; Back down
-    times LINES_PER_COLOR db 12
-    times LINES_PER_COLOR db 12
-    times LINES_PER_COLOR db 4
-    times LINES_PER_COLOR db 4
-    times LINES_PER_COLOR db 4
-    times LINES_PER_COLOR db 0      ; Black edge
+%assign i 1
+%rep 7
+    times LINES_PER_COLOR db i
+%assign i i+1
+%endrep
+%assign i 7
+%rep 7
+    times LINES_PER_COLOR db i
+%assign i i-1
+%endrep
 
-; Green gradient - palette indices for PORT_COLOR (border color)
+; Green gradient pattern (palette indices 8-14, then 14-8)
 green_gradient:
-    times LINES_PER_COLOR db 2      ; Dark green (CGA green)
-    times LINES_PER_COLOR db 2
-    times LINES_PER_COLOR db 10     ; Light green
-    times LINES_PER_COLOR db 10
-    times LINES_PER_COLOR db 10
-    times LINES_PER_COLOR db 15     ; White (brightest)
-    times LINES_PER_COLOR db 15
-    times LINES_PER_COLOR db 10     ; Back down
-    times LINES_PER_COLOR db 10
-    times LINES_PER_COLOR db 10
-    times LINES_PER_COLOR db 2
-    times LINES_PER_COLOR db 2
-    times LINES_PER_COLOR db 2
-    times LINES_PER_COLOR db 0      ; Black edge
+%assign i 8
+%rep 7
+    times LINES_PER_COLOR db i
+%assign i i+1
+%endrep
+%assign i 14
+%rep 7
+    times LINES_PER_COLOR db i
+%assign i i-1
+%endrep
 
 ; Standard CGA palette for exit
 cga_colors:
@@ -1004,27 +889,6 @@ cga_colors:
     db 0x07, 0x27    ; 13: Light Magenta
     db 0x07, 0x70    ; 14: Yellow
     db 0x07, 0x77    ; 15: White
-
-; rbars4 palette - exact copy
-rbars4_palette:
-    db 0x00, 0x00               ;  0: Black (background)
-    ; Red gradient (colors 1-7)
-    db 0x0F, 0x77               ;  1: Light pink (brightest red)
-    db 0x0F, 0x55               ;  2: Pink
-    db 0x0F, 0x33               ;  3: Light red
-    db 0x0D, 0x22               ;  4: Red
-    db 0x0A, 0x11               ;  5: Dark red
-    db 0x07, 0x00               ;  6: Darker red
-    db 0x04, 0x00               ;  7: Darkest red
-    ; Green gradient (colors 8-14)
-    db 0x07, 0xF7               ;  8: Light green-white (brightest)
-    db 0x05, 0xF5               ;  9: Light green
-    db 0x03, 0xD3               ; 10: Green
-    db 0x02, 0xA2               ; 11: Medium green
-    db 0x01, 0x71               ; 12: Dark green
-    db 0x00, 0x50               ; 13: Darker green
-    db 0x00, 0x30               ; 14: Darkest green
-    db 0x00, 0x00               ; 15: Black (unused)
 
 ; BMP header buffer and row buffers
 bmp_header:     times 128 db 0

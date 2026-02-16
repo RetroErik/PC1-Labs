@@ -1,21 +1,85 @@
 ; ============================================================================
-; DEMO7.ASM - R12/R13 Hardware Scroll Test (160×512 support) - first working version
+; DEMO7B.ASM - Tall Image Viewport Scroller (Software Scrolling)
 ; Olivetti Prodest PC1 - V6355D 160x200x16 Hidden Graphics Mode
 ; Written for NASM - NEC V40 @ 8 MHz (80186 instruction set)
 ; By RetroErik - 2026
 ;
 ; Description:
-;   Loads a 160×200-512 BMP, stores in allocated RAM (up to 40KB),
-;   copies 200-row viewport to VRAM, scrolls using keyboard.
-;   Press UP/DOWN arrows or <,> to scroll. ESC/Q to exit.
+;   Loads a tall BMP image (up to 800 rows) into a DOS-allocated RAM buffer
+;   and scrolls a 200-row viewport by copying 16KB to VRAM each frame.
+;   This is SOFTWARE scrolling — no R12/R13 hardware scrolling is used,
+;   because CRTC can only address VRAM, not system RAM.
 ;
-; This proves that V6355D's "6845 restricted mode" supports hardware
-; scrolling via standard CGA CRTC Start Address registers.
+;   See demo7_simple/demo7a for R12/R13 hardware scrolling (limited to VRAM).
+;   See demo8 for the circular buffer optimisation (160 bytes/frame vs 16KB).
 ;
-; MEMORY LAYOUT:
-;   - Shrink COM program to free DOS memory
-;   - Allocate 40KB for 160×512 interlaced buffer
-;   - Copy 200-row viewport to VRAM for display
+; ============================================================================
+; SCROLLING TECHNIQUE COMPARISON: DEMO5 vs DEMO7B  (DEMO6 moves only top N lines)
+; ============================================================================
+;
+; PROBLEM: Images taller than 200 rows exceed VRAM capacity (16KB).
+;          CGA CRTC R12/R13 hardware scrolling ONLY works within VRAM.
+;          They cannot address system RAM - the CRTC only sees video memory.
+;
+; Both demo5 and demo7b use SOFTWARE scrolling - copying pixels from RAM to
+; VRAM each frame. The difference is in HOW they copy:
+;
+; +------------------+----------------------------------+--------------------------+
+; | Aspect           | Demo5 (Row-by-Row)               | Demo7b (Bulk Block Copy) |
+; +------------------+----------------------------------+-------------------------+
+; | Copy Approach    | 200 calls to copy_row_with_offset| 2 REP MOVSW operations  |
+; | CPU Operations   | Per-row offset calculation       | Just 2 pointer setups   |
+; | Per-Frame Calls  | 200 function calls               | 2 function calls        |
+; | Edge Handling    | Per-row bounds checking, clip    | None (viewport only)    |
+; | X Scrolling      | YES - horizontal panning         | NO - Y scroll only      |
+; | Y Scrolling      | YES - with clipping              | YES - block copy        |
+; | Flexibility      | Handles any X,Y position         | Fixed viewport window   |
+; | Speed            | Slower (call overhead)           | Faster (pure bulk copy) |
+; | Code Complexity  | More complex (clipping logic)    | Simpler (just offsets)  |
+; +------------------+----------------------------------+-------------------------+
+;
+; Demo7b trades features (no X scroll) for speed (pure bulk copy).
+; Both use REP MOVSW for the actual byte transfer.
+;
+; SOLUTION: Software viewport scrolling (demo7b approach)
+;   1. Load entire image (up to 800 rows = 64KB) into DOS-allocated RAM
+;   2. Store in interlaced format matching VRAM layout for fast copying
+;   3. Copy a 200-row "viewport" from RAM to VRAM each scroll step
+;   4. Scroll position determines which 200 rows to display
+;
+; ============================================================================
+; SPEED IMPROVEMENT: SEE DEMO8 FOR CIRCULAR BUFFER TECHNIQUE
+; ============================================================================
+;
+; Demo7b copies 16KB every scroll step. This can be improved ~100x!
+;
+; Demo8/Demo8a implement circular buffer scrolling:
+;   - Only copy 160 bytes per scroll (2 new rows) instead of 16KB
+;   - Use R12/R13 to shift display start address within VRAM
+;   - CRTC wraps around at bank boundary, making it seamless
+;
+; Note: Demo8a demonstrates the concept but has the "384-byte gap bug"
+; due to CGA interlaced memory layout (8000 bytes used, 8192 byte banks).
+;
+; For more details on scrolling techniques, see:
+;   V6355D-Technical-Reference.md, Section 17f "CGA CRTC R12/R13 Hardware Scrolling"
+;
+; ============================================================================
+; CONTROLS
+; ============================================================================
+;   UP/DOWN arrows or <,> = Manual scroll (2 rows per step)
+;   SPACE = Toggle auto-scroll (bounces up and down)
+;   V = Toggle VSync wait (smoother but limits speed)
+;   ESC/Q = Exit
+;
+; ============================================================================
+; MEMORY LAYOUT
+; ============================================================================
+;   - COM program shrunk via DOS INT 21h/4Ah to free memory
+;   - Image buffer allocated via DOS INT 21h/48h (up to 64KB)
+;   - Buffer uses interlaced format: even rows first, then odd rows
+;   - VRAM at B000:0000 (even bank) and B000:2000 (odd bank)
+;
 ; ============================================================================
 
 [BITS 16]
@@ -28,30 +92,32 @@
 
 VIDEO_SEG       equ 0xB000
 BYTES_PER_LINE  equ 80
-VRAM_SIZE       equ 16384       ; 16KB VRAM
-MAX_IMAGE_HEIGHT equ 512        ; Maximum supported height
+VRAM_SIZE       equ 16384       ; 16KB VRAM (cannot fit images > 200 rows)
+MAX_IMAGE_HEIGHT equ 800        ; Maximum height: 800×80 = 64000 bytes
 STACK_RESERVE   equ 64          ; Paragraphs reserved for stack (1KB)
+SCROLL_SPEED    equ 2           ; Rows per frame for auto-scroll
+FRAME_DELAY     equ 2           ; VSync waits between frames (controls speed)
 
-; Ports
-PORT_REG_ADDR   equ 0x3DD
-PORT_REG_DATA   equ 0x3DE
-PORT_MODE       equ 0x3D8
-PORT_COLOR      equ 0x3D9
-PORT_STATUS     equ 0x3DA
-PORT_CRTC_ADDR  equ 0x3D4
-PORT_CRTC_DATA  equ 0x3D5
+; V6355D I/O Ports (see Technical Reference Section 3)
+PORT_REG_ADDR   equ 0x3DD       ; Register bank address
+PORT_REG_DATA   equ 0x3DE       ; Register bank data
+PORT_MODE       equ 0x3D8       ; Mode control (0x4A = hidden graphics mode)
+PORT_COLOR      equ 0x3D9       ; Border color
+PORT_STATUS     equ 0x3DA       ; Status (bit 3 = VBlank)
+PORT_CRTC_ADDR  equ 0x3D4       ; CRTC register select
+PORT_CRTC_DATA  equ 0x3D5       ; CRTC register data
 
-; CRTC registers
-CRTC_START_HIGH equ 12
-CRTC_START_LOW  equ 13
+; CRTC registers (unused in demo7b - see demo7a.asm for R12/R13 usage)
+CRTC_START_HIGH equ 12          ; Start Address High (R12)
+CRTC_START_LOW  equ 13          ; Start Address Low (R13)
 
-; BMP offsets
-BMP_SIGNATURE   equ 0
-BMP_DATA_OFFSET equ 10
-BMP_WIDTH       equ 18
-BMP_HEIGHT      equ 22
-BMP_BPP         equ 28
-BMP_COMPRESSION equ 30
+; BMP file header offsets
+BMP_SIGNATURE   equ 0           ; 'BM' signature
+BMP_DATA_OFFSET equ 10          ; Offset to pixel data
+BMP_WIDTH       equ 18          ; Image width
+BMP_HEIGHT      equ 22          ; Image height
+BMP_BPP         equ 28          ; Bits per pixel (must be 4)
+BMP_COMPRESSION equ 30          ; Compression (must be 0)
 
 ; ============================================================================
 ; Main
@@ -173,14 +239,26 @@ main:
     out dx, al
     
     ; ========================================================================
-    ; Main loop - keyboard scroll test
+    ; Main loop - keyboard scroll test with auto-scroll support
     ; ========================================================================
 .main_loop:
-    ; Wait for keypress
+    ; Check if auto-scrolling is active
+    cmp byte [auto_scroll], 0
+    jne .do_auto_scroll
+    
+    ; Manual mode: wait for keypress
     mov ah, 0x01
     int 0x16
     jz .main_loop
+    jmp .handle_key
+
+.do_auto_scroll:
+    ; Auto-scroll mode: check for key but don't wait
+    mov ah, 0x01
+    int 0x16
+    jz .auto_step
     
+.handle_key:
     ; Get key
     xor ah, ah
     int 0x16
@@ -193,7 +271,17 @@ main:
     cmp al, 'Q'
     je .exit
     
-    ; Check for scroll keys
+    ; Check for space (toggle auto-scroll)
+    cmp al, ' '
+    je .toggle_auto
+    
+    ; Check for V (toggle VSync)
+    cmp al, 'V'
+    je .toggle_vsync
+    cmp al, 'v'
+    je .toggle_vsync
+    
+    ; Check for scroll keys (manual)
     cmp ah, 0x48            ; Up arrow
     je .scroll_up
     cmp al, ','
@@ -210,7 +298,51 @@ main:
     
     jmp .main_loop
 
+.toggle_auto:
+    xor byte [auto_scroll], 1
+    jmp .main_loop
+
+.toggle_vsync:
+    xor byte [vsync_enabled], 1
+    jmp .main_loop
+
+.auto_step:
+    ; Frame delay for smooth animation (if VSync enabled)
+    cmp byte [vsync_enabled], 0
+    je .skip_vsync
+    mov cx, FRAME_DELAY
+.delay_loop:
+    call wait_vsync
+    loop .delay_loop
+.skip_vsync:
+    
+    ; Move in current direction
+    mov ax, [scroll_row]
+    cmp byte [scroll_dir], 0
+    jne .auto_up
+    
+    ; Moving down
+    add ax, SCROLL_SPEED
+    cmp ax, [max_scroll_row]
+    jbe .auto_update
+    mov ax, [max_scroll_row]
+    mov byte [scroll_dir], 1    ; Reverse to up
+    jmp .auto_update
+    
+.auto_up:
+    ; Moving up
+    sub ax, SCROLL_SPEED
+    jns .auto_update
+    xor ax, ax
+    mov byte [scroll_dir], 0    ; Reverse to down
+    
+.auto_update:
+    mov [scroll_row], ax
+    call copy_viewport_to_vram
+    jmp .main_loop
+
 .scroll_up:
+    mov byte [auto_scroll], 0   ; Stop auto-scroll on manual input
     mov ax, [scroll_row]
     sub ax, 2               ; Move up 2 rows (keep bank alignment)
     jns .update_scroll
@@ -218,6 +350,7 @@ main:
     jmp .update_scroll
 
 .scroll_down:
+    mov byte [auto_scroll], 0   ; Stop auto-scroll on manual input
     mov ax, [scroll_row]
     add ax, 2               ; Move down 2 rows (keep bank alignment)
     cmp ax, [max_scroll_row]
@@ -306,6 +439,31 @@ set_crtc_start_address:
     ret
 
 ; ============================================================================
+; wait_vsync - Wait for vertical retrace (smooth animation)
+; ============================================================================
+wait_vsync:
+    push ax
+    push dx
+    
+    mov dx, PORT_STATUS
+    
+    ; Wait for end of current retrace (if in retrace)
+.wait_end:
+    in al, dx
+    test al, 8
+    jnz .wait_end
+    
+    ; Wait for start of new retrace
+.wait_start:
+    in al, dx
+    test al, 8
+    jz .wait_start
+    
+    pop dx
+    pop ax
+    ret
+
+; ============================================================================
 ; enable_graphics_mode - PC1 hidden 160×200×16 mode
 ; ============================================================================
 enable_graphics_mode:
@@ -365,8 +523,13 @@ shrink_memory_block:
 ; ============================================================================
 ; decode_bmp - Allocate RAM and read BMP to interlaced buffer
 ;
-; For images > 200 rows, we need DOS-allocated memory.
-; Layout: interlaced like VRAM (even rows at 0, odd rows at half-size offset)
+; Allocates DOS memory for images up to 800 rows (64KB).
+; Stores image in INTERLACED format matching VRAM layout:
+;   - Even rows (0,2,4...): bytes 0 to (height/2)*80
+;   - Odd rows (1,3,5...):  bytes (height/2)*80 to height*80
+;
+; This layout enables fast block copies to VRAM's split banks.
+; See Technical Reference Section 1 "VRAM Layout" for details.
 ; ============================================================================
 decode_bmp:
     pusha
@@ -480,21 +643,24 @@ decode_bmp:
 ; ============================================================================
 ; copy_viewport_to_vram - Copy 200-row viewport from RAM buffer to VRAM
 ;
+; This is the SOFTWARE SCROLLING routine - it copies 16KB per call.
+; For images taller than VRAM (200 rows), we cannot use R12/R13 hardware
+; scrolling because CRTC can only address video memory, not system RAM.
+;
 ; Input: [scroll_row] = starting row in image (0 to height-200)
 ; Copies rows [scroll_row .. scroll_row+199] to VRAM
+;
+; PERFORMANCE: Slow due to 16KB copy. Causes visible flicker.
+; See Technical Reference Section 17f for faster alternatives.
 ; ============================================================================
 copy_viewport_to_vram:
     pusha
     push ds
     push es
     
-    ; Clear full VRAM first
+    ; No need to clear - we overwrite all 16KB of VRAM
     mov ax, VIDEO_SEG
     mov es, ax
-    xor di, di
-    xor ax, ax
-    mov cx, 8192
-    rep stosw
     
     ; Calculate source offset for even rows
     ; scroll_row/2 * 80 = starting offset in even bank
@@ -614,15 +780,16 @@ set_cga_palette:
 ; Data
 ; ============================================================================
 
-msg_usage       db 'DEMO7 - Tall Image Scroll Test', 13, 10
-                db 'Usage: DEMO7 filename.bmp', 13, 10
-                db 'BMP must be 160 wide, 200-512 tall, 4-bit', 13, 10
-                db 'UP/DOWN or <,> to scroll, ESC to exit', 13, 10, '$'
+msg_usage       db 'DEMO7B - Tall Image Viewport Scroller (Software)', 13, 10
+                db 'Usage: DEMO7B filename.bmp', 13, 10
+                db 'BMP must be 160 wide, 200-800 tall, 4-bit', 13, 10
+                db 'UP/DOWN = scroll, SPACE = auto, V = VSync toggle', 13, 10
+                db 'ESC to exit', 13, 10, '$'
 
 msg_file_err    db 'Error: Cannot open file', 13, 10, '$'
 msg_not_bmp     db 'Error: Not a valid BMP file', 13, 10, '$'
 msg_format      db 'Error: Must be 4-bit uncompressed BMP', 13, 10, '$'
-msg_size        db 'Error: Must be 160 wide, 200-512 tall', 13, 10, '$'
+msg_size        db 'Error: Must be 160 wide, 200-800 tall', 13, 10, '$'
 msg_mem_err     db 'Error: Cannot allocate memory', 13, 10, '$'
 
 ; Standard CGA palette (16 colors × 2 bytes)
@@ -658,6 +825,11 @@ max_scroll_row  dw 0            ; Maximum scroll row (image_height - 200)
 image_buffer_seg dw 0           ; Segment of allocated image buffer
 odd_bank_offset dw 0            ; Offset to odd bank in buffer
 image_size_bytes dw 0           ; Total image bytes (for freeing)
+
+; Auto-scroll state
+auto_scroll     db 0            ; 0 = manual, 1 = auto-scrolling
+scroll_dir      db 0            ; 0 = down, 1 = up
+vsync_enabled   db 1            ; 1 = VSync ON, 0 = free-running (press V to toggle)
 
 bmp_header      times 128 db 0
 row_buffer      times 164 db 0   ; Max 320 pixels / 2 = 160 bytes + padding

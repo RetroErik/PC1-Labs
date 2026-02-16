@@ -1,15 +1,16 @@
 ; ============================================================================
-; DEMO7_SIMPLE.ASM - Simple Hardware Scroll Test (no RAM buffer)
+; TEST_R12R13.ASM - R12/R13 Hardware Scroll Test (diagnostic tool)
 ; Olivetti Prodest PC1 - V6355D 160x200x16 Hidden Graphics Mode
 ; Written for NASM - NEC V40 @ 8 MHz (80186 instruction set)
 ; By RetroErik - 2026
 ;
 ; Description:
-;   Simplified test version that loads a 320×200 BMP directly to VRAM
-;   (like PC1-BMP.asm which works), then tests R12/R13 hardware scrolling.
-;   No RAM buffer allocation - eliminates memory issues for debugging.
+;   Loads a 320×200 BMP directly to VRAM and tests R12/R13 hardware
+;   scrolling. No RAM buffer — eliminates memory issues for debugging.
+;   Border color changes at each stage for diagnostic feedback.
+;   Originally demo7_simple.asm, moved to Tools as a standalone test.
 ;
-; Usage: DEMO7_SIMPLE filename.bmp
+; Usage: TEST_R12R13 filename.bmp
 ;        Comma/Period = scroll, ESC = exit
 ; ============================================================================
 

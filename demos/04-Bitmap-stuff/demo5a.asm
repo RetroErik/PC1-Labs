@@ -1,5 +1,5 @@
 ; ============================================================================
-; DEMO5.ASM - Scrolling BMP Image Demo
+; DEMO5A.ASM - Scrolling BMP Image Demo
 ; Olivetti Prodest PC1 - V6355D 160x200x16 Hidden Graphics Mode
 ; Written for NASM - NEC V40 @ 8 MHz (80186 instruction set)
 ; By RetroErik - 2026 with GitHub Copilot
@@ -58,8 +58,13 @@
 ;   - Image copy extends past VBlank (some tearing visible)
 ;   - Future optimization: delta updates or hardware scroll
 ;
-; Usage: DEMO5 filename.bmp
+; Usage: DEMO5A filename.bmp
 ;        Press any key to exit
+;
+; See also:
+;   demo5b - Same scroller with LINEAR RAM buffer (simpler but slower)
+;   demo5c - Same scroller with INTERLACED RAM buffer (this approach)
+;   The two variants allow comparing RAM layout strategies.
 ;
 ; Prerequisites:
 ;   Run PERITEL.COM first to set horizontal position correctly
@@ -1053,10 +1058,10 @@ copy_image_to_vram:
 ; Data Section
 ; ============================================================================
 
-msg_info    db 'DEMO5 v1.1 - Scrolling BMP Image for Olivetti PC1', 0x0D, 0x0A
+msg_info    db 'DEMO5A - Scrolling BMP Image for Olivetti PC1', 0x0D, 0x0A
             db 'Scrolls BMP image with smooth sine-wave motion.', 0x0D, 0x0A
             db 0x0D, 0x0A
-            db 'Usage: DEMO5 filename.bmp', 0x0D, 0x0A
+            db 'Usage: DEMO5A filename.bmp', 0x0D, 0x0A
             db 0x0D, 0x0A
             db 'Press any key to exit.', 0x0D, 0x0A
             db 'By RetroErik - 2026', 0x0D, 0x0A, '$'

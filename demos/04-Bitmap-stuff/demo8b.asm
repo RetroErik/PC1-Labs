@@ -1,5 +1,5 @@
 ; ============================================================================
-; DEMO8.ASM - CRTC Circular Buffer Scrolling Experiments - REDUCED DISPLAY + PERIODIC RELOAD
+; DEMO8B.ASM - Circular Buffer Scroller with Reduced Display (196 rows)
 ; Olivetti Prodest PC1 - V6355D 160x200x16 Hidden Graphics Mode
 ; Written for NASM - NEC V40 @ 8 MHz (80186 instruction set)
 ; By RetroErik - 2026
@@ -22,8 +22,8 @@
 ;   5. CRTC wraps around at 8KB boundary, making it seamless
 ;
 ; Memory comparison:
-;   Demo7: 15,680 bytes per scroll step (full viewport copy)
-;   Demo8: 160 bytes per scroll step (just 2 new rows) - 80% of scrolls
+;   Demo7b: 15,680 bytes per scroll step (full viewport copy)
+;   Demo8b: 160 bytes per scroll step (just 2 new rows) - 80% of scrolls
 ;   Speedup: ~20x faster on average!
 ;
 ; VRAM layout (interlaced, 196-row display):
@@ -43,7 +43,7 @@
 ;   Every 4 scrolls, do a full viewport reload to reset crtc_start_addr.
 ;   
 ;   Result: 4 fast scrolls (160 bytes each) + 1 slow reload (15680 bytes)
-;   Average: ~3,200 bytes/scroll instead of 15,680 = ~5x faster than demo7
+;   Average: ~3,200 bytes/scroll instead of 15,680 = ~5x faster than demo7b
 ;
 ; ============================================================================
 ; CONTROLS
@@ -1028,8 +1028,8 @@ set_cga_palette:
 ; Data
 ; ============================================================================
 
-msg_usage       db 'DEMO8 - 196-Row Circular Buffer Scroller (~5x faster)', 13, 10
-                db 'Usage: DEMO8 filename.bmp', 13, 10
+msg_usage       db 'DEMO8B - 196-Row Circular Buffer Scroller (~5x faster)', 13, 10
+                db 'Usage: DEMO8B filename.bmp', 13, 10
                 db 'BMP must be 160 wide, 196-800 tall, 4-bit', 13, 10
                 db 'UP/DOWN = scroll, SPACE = auto, V = VSync, R = Reset', 13, 10
                 db 'Uses R12/R13 + partial updates (160 bytes vs 15KB)', 13, 10
