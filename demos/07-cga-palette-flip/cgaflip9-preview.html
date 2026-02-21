@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>CGAFLIP9 Preview — Per-Scanline Full-Palette Gradients (E2-E7)</title>
+<style>
+  body { background: #222; color: #eee; font-family: monospace; text-align: center; }
+  canvas { border: 1px solid #555; image-rendering: pixelated; margin: 10px; }
+  .controls { margin: 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+  .control-group { text-align: left; }
+  .control-group label { display: block; margin-bottom: 4px; font-weight: bold; }
+  select, button { font-family: monospace; font-size: 14px; padding: 4px 8px; margin: 2px; }
+  .legend { display: inline-block; text-align: left; margin: 20px; vertical-align: top; }
+  .legend td { padding: 2px 8px; }
+  .swatch { display: inline-block; width: 16px; height: 16px; border: 1px solid #888; vertical-align: middle; }
+  h2 { margin-top: 30px; }
+  .stats { font-size: 12px; color: #aaa; margin: 5px; }
+</style>
+</head>
+<body>
+<h1>CGAFLIP9 Preview</h1>
+<p>Per-scanline E2-E7 update — 3 columns × 200 lines | V6355D RGB333</p>
+
+<div class="controls">
+  <div class="control-group">
+    <label>Preset (SPACE on HW):</label>
+    <select id="preset" onchange="applyPreset()">
+      <option value="0" selected>Mode 0: Sunset / Rainbow / Cubehelix</option>
+      <option value="1">Mode 1: Red / Green / Blue</option>
+      <option value="2">Mode 2: All 512 RGB333 colors</option>
+      <option value="3">Mode 3: Sunset / Rainbow / Cubehelix (200-step)</option>
+      <option value="4">200-step: Fire / Ocean / Purple</option>
+      <option value="5">200-step: Red / Green / Blue</option>
+      <option value="6">Cubehelix Max (~296 unique across 3 cols)</option>
+      <option value="custom">Custom</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>Column 1 gradient:</label>
+    <select id="grad1" onchange="setCustom(); render()">
+      <optgroup label="34-step (original)">
+        <option value="sunset" selected>Sunset (Purple→Red→Orange→Gold)</option>
+        <option value="rainbow">Rainbow</option>
+        <option value="cubehelix">Cubehelix Spiral</option>
+        <option value="red">Pure Red</option>
+        <option value="green">Pure Green</option>
+        <option value="blue">Pure Blue</option>
+        <option value="fire">Fire (Red→Yellow→White)</option>
+        <option value="ocean">Ocean (Dark Blue→Cyan→White)</option>
+        <option value="purple">Purple Fade</option>
+        <option value="forest">Forest (Black→Green→Yellow)</option>
+      </optgroup>
+      <optgroup label="200-step (expanded)">
+        <option value="rainbow200">Rainbow 200 (full hue cycle)</option>
+        <option value="sunset200">Sunset 200 (extended)</option>
+        <option value="cubehelix200">Cubehelix 200 (~200 unique/col)</option>
+        <option value="fire200">Fire 200 (Black→Red→Yellow→White)</option>
+        <option value="ocean200">Ocean 200 (Black→Blue→Cyan→White)</option>
+        <option value="purple200">Purple 200 (Black→Purple→Pink→White)</option>
+        <option value="forest200">Forest 200 (Black→Green→Yellow→White)</option>
+        <option value="red200">Red 200 (Black→Red→White)</option>
+        <option value="green200">Green 200 (Black→Green→White)</option>
+        <option value="blue200">Blue 200 (Black→Blue→White)</option>
+      </optgroup>
+      <optgroup label="Cubehelix all unique (~296)">
+        <option value="cubehelix_col1">Cubehelix Max — Column 1</option>
+        <option value="cubehelix_col2">Cubehelix Max — Column 2</option>
+        <option value="cubehelix_col3">Cubehelix Max — Column 3</option>
+      </optgroup>
+      <optgroup label="All 512 colors">
+        <option value="512_col1">All 512 — Column 1</option>
+        <option value="512_col2">All 512 — Column 2</option>
+        <option value="512_col3">All 512 — Column 3</option>
+      </optgroup>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>Column 2 gradient:</label>
+    <select id="grad2" onchange="setCustom(); render()">
+      <optgroup label="34-step (original)">
+        <option value="rainbow" selected>Rainbow</option>
+        <option value="sunset">Sunset (Purple→Red→Orange→Gold)</option>
+        <option value="cubehelix">Cubehelix Spiral</option>
+        <option value="red">Pure Red</option>
+        <option value="green">Pure Green</option>
+        <option value="blue">Pure Blue</option>
+        <option value="fire">Fire (Red→Yellow→White)</option>
+        <option value="ocean">Ocean (Dark Blue→Cyan→White)</option>
+        <option value="purple">Purple Fade</option>
+        <option value="forest">Forest (Black→Green→Yellow)</option>
+      </optgroup>
+      <optgroup label="200-step (expanded)">
+        <option value="rainbow200">Rainbow 200 (full hue cycle)</option>
+        <option value="sunset200">Sunset 200 (extended)</option>
+        <option value="cubehelix200">Cubehelix 200 (~200 unique/col)</option>
+        <option value="fire200">Fire 200 (Black→Red→Yellow→White)</option>
+        <option value="ocean200">Ocean 200 (Black→Blue→Cyan→White)</option>
+        <option value="purple200">Purple 200 (Black→Purple→Pink→White)</option>
+        <option value="forest200">Forest 200 (Black→Green→Yellow→White)</option>
+        <option value="red200">Red 200 (Black→Red→White)</option>
+        <option value="green200">Green 200 (Black→Green→White)</option>
+        <option value="blue200">Blue 200 (Black→Blue→White)</option>
+      </optgroup>
+      <optgroup label="Cubehelix all unique (~296)">
+        <option value="cubehelix_col1">Cubehelix Max — Column 1</option>
+        <option value="cubehelix_col2">Cubehelix Max — Column 2</option>
+        <option value="cubehelix_col3">Cubehelix Max — Column 3</option>
+      </optgroup>
+      <optgroup label="All 512 colors">
+        <option value="512_col1">All 512 — Column 1</option>
+        <option value="512_col2">All 512 — Column 2</option>
+        <option value="512_col3">All 512 — Column 3</option>
+      </optgroup>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>Column 3 gradient:</label>
+    <select id="grad3" onchange="setCustom(); render()">
+      <optgroup label="34-step (original)">
+        <option value="cubehelix" selected>Cubehelix Spiral</option>
+        <option value="sunset">Sunset (Purple→Red→Orange→Gold)</option>
+        <option value="rainbow">Rainbow</option>
+        <option value="red">Pure Red</option>
+        <option value="green">Pure Green</option>
+        <option value="blue">Pure Blue</option>
+        <option value="fire">Fire (Red→Yellow→White)</option>
+        <option value="ocean">Ocean (Dark Blue→Cyan→White)</option>
+        <option value="purple">Purple Fade</option>
+        <option value="forest">Forest (Black→Green→Yellow)</option>
+      </optgroup>
+      <optgroup label="200-step (expanded)">
+        <option value="rainbow200">Rainbow 200 (full hue cycle)</option>
+        <option value="sunset200">Sunset 200 (extended)</option>
+        <option value="cubehelix200">Cubehelix 200 (~200 unique/col)</option>
+        <option value="fire200">Fire 200 (Black→Red→Yellow→White)</option>
+        <option value="ocean200">Ocean 200 (Black→Blue→Cyan→White)</option>
+        <option value="purple200">Purple 200 (Black→Purple→Pink→White)</option>
+        <option value="forest200">Forest 200 (Black→Green→Yellow→White)</option>
+        <option value="red200">Red 200 (Black→Red→White)</option>
+        <option value="green200">Green 200 (Black→Green→White)</option>
+        <option value="blue200">Blue 200 (Black→Blue→White)</option>
+      </optgroup>
+      <optgroup label="Cubehelix all unique (~296)">
+        <option value="cubehelix_col1">Cubehelix Max — Column 1</option>
+        <option value="cubehelix_col2">Cubehelix Max — Column 2</option>
+        <option value="cubehelix_col3">Cubehelix Max — Column 3</option>
+      </optgroup>
+      <optgroup label="All 512 colors">
+        <option value="512_col1">All 512 — Column 1</option>
+        <option value="512_col2">All 512 — Column 2</option>
+        <option value="512_col3">All 512 — Column 3</option>
+      </optgroup>
+    </select>
+  </div>
+</div>
+
+<canvas id="screen" width="320" height="200"></canvas>
+<canvas id="zoomed" width="640" height="400"></canvas>
+<div class="stats" id="stats"></div>
+
+<table class="legend" id="legendTable"></table>
+
+<script>
+// V6355D RGB333 → CSS color
+function rgb333(r, g, b) {
+  return `rgb(${Math.round(r*255/7)},${Math.round(g*255/7)},${Math.round(b*255/7)})`;
+}
+
+function decode(R, GB) {
+  return { r: R & 7, g: (GB >> 4) & 7, b: GB & 7 };
+}
+
+function encode(r, g, b) {
+  return [Math.min(7, Math.max(0, Math.round(r))), (Math.min(7, Math.max(0, Math.round(g))) << 4) | Math.min(7, Math.max(0, Math.round(b)))];
+}
+
+// ==========================================================================
+// Gradient definitions — 34 steps each, V6355D RGB333 [R, G<<4|B]
+// ==========================================================================
+
+const gradients = {
+  sunset: [
+    [1,0x03],[2,0x04],[2,0x05],[3,0x06],[3,0x07],[4,0x07],[4,0x06],
+    [5,0x06],[5,0x05],[6,0x05],[6,0x04],[7,0x04],[7,0x03],
+    [7,0x02],[7,0x01],[7,0x00],[7,0x00],[7,0x10],
+    [7,0x10],[7,0x20],[7,0x20],[7,0x30],[7,0x30],
+    [7,0x40],[7,0x40],[7,0x50],[7,0x50],[7,0x60],
+    [7,0x60],[7,0x70],[7,0x70],[7,0x71],[7,0x72],[7,0x73]
+  ],
+  rainbow: [
+    [7,0x00],[7,0x10],[7,0x20],[7,0x30],[7,0x40],[7,0x50],[7,0x70],
+    [6,0x70],[5,0x70],[4,0x70],[3,0x70],[2,0x70],[0,0x70],
+    [0,0x71],[0,0x72],[0,0x73],[0,0x75],[0,0x77],
+    [0,0x67],[0,0x57],[0,0x47],[0,0x37],[0,0x27],[0,0x17],[0,0x07],
+    [1,0x07],[2,0x07],[3,0x07],[4,0x07],[5,0x07],
+    [5,0x06],[6,0x05],[7,0x04],[7,0x02]
+  ],
+  cubehelix: [
+    [0,0x00],[0,0x01],[0,0x02],[0,0x13],[0,0x24],[0,0x35],
+    [1,0x45],[1,0x55],[2,0x64],[3,0x63],[4,0x52],[5,0x41],
+    [5,0x30],[6,0x20],[6,0x10],[6,0x01],[6,0x02],[5,0x03],
+    [5,0x04],[4,0x15],[3,0x26],[3,0x37],[3,0x57],[4,0x67],
+    [5,0x76],[5,0x75],[6,0x74],[6,0x63],[7,0x53],[7,0x43],
+    [7,0x34],[7,0x45],[7,0x66],[7,0x77]
+  ],
+  red: [
+    [0,0x00],[1,0x00],[1,0x00],[2,0x00],[2,0x00],[3,0x00],[3,0x00],
+    [4,0x00],[4,0x00],[5,0x00],[5,0x00],[6,0x00],[6,0x00],
+    [7,0x00],[7,0x00],[7,0x10],[7,0x10],[7,0x20],
+    [7,0x20],[7,0x30],[7,0x30],[7,0x40],[7,0x40],
+    [7,0x50],[7,0x50],[7,0x51],[7,0x62],[7,0x62],
+    [7,0x63],[7,0x63],[7,0x74],[7,0x75],[7,0x76],[7,0x77]
+  ],
+  green: [
+    [0,0x00],[0,0x10],[0,0x10],[0,0x20],[0,0x20],[0,0x30],[0,0x30],
+    [0,0x40],[0,0x40],[0,0x50],[0,0x50],[0,0x60],[0,0x60],
+    [0,0x70],[0,0x70],[1,0x70],[1,0x70],[2,0x70],
+    [2,0x70],[3,0x70],[3,0x70],[4,0x70],[4,0x70],
+    [5,0x70],[5,0x71],[5,0x71],[6,0x72],[6,0x72],
+    [6,0x73],[6,0x73],[7,0x74],[7,0x75],[7,0x76],[7,0x77]
+  ],
+  blue: [
+    [0,0x00],[0,0x01],[0,0x01],[0,0x02],[0,0x02],[0,0x03],[0,0x03],
+    [0,0x04],[0,0x04],[0,0x05],[0,0x05],[0,0x06],[0,0x06],
+    [0,0x07],[0,0x07],[0,0x17],[0,0x17],[0,0x27],
+    [0,0x27],[0,0x37],[0,0x37],[0,0x47],[0,0x47],
+    [0,0x57],[1,0x57],[1,0x57],[2,0x67],[2,0x67],
+    [3,0x67],[3,0x67],[4,0x77],[5,0x77],[6,0x77],[7,0x77]
+  ],
+  fire: [
+    [1,0x00],[2,0x00],[3,0x00],[4,0x00],[5,0x00],[6,0x00],[7,0x00],
+    [7,0x00],[7,0x10],[7,0x10],[7,0x20],[7,0x20],[7,0x30],
+    [7,0x30],[7,0x40],[7,0x40],[7,0x50],[7,0x50],
+    [7,0x60],[7,0x60],[7,0x70],[7,0x70],[7,0x71],
+    [7,0x72],[7,0x73],[7,0x74],[7,0x75],[7,0x76],
+    [7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77]
+  ],
+  ocean: [
+    [0,0x01],[0,0x02],[0,0x03],[0,0x04],[0,0x05],[0,0x06],[0,0x07],
+    [0,0x17],[0,0x27],[0,0x37],[0,0x47],[0,0x57],[0,0x67],
+    [0,0x77],[0,0x77],[1,0x77],[1,0x77],[2,0x77],
+    [2,0x77],[3,0x77],[3,0x77],[4,0x77],[4,0x77],
+    [5,0x77],[5,0x77],[6,0x77],[6,0x77],[7,0x77],
+    [7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77]
+  ],
+  purple: [
+    [0,0x00],[0,0x01],[1,0x01],[1,0x02],[1,0x03],[2,0x03],[2,0x04],
+    [2,0x05],[3,0x05],[3,0x06],[3,0x07],[4,0x07],[4,0x06],
+    [5,0x06],[5,0x07],[5,0x06],[6,0x06],[6,0x05],
+    [7,0x05],[7,0x04],[7,0x04],[7,0x03],[7,0x03],
+    [7,0x02],[7,0x02],[7,0x13],[7,0x24],[7,0x35],
+    [7,0x46],[7,0x57],[7,0x67],[7,0x77],[7,0x77],[7,0x77]
+  ],
+  forest: [
+    [0,0x00],[0,0x00],[0,0x10],[0,0x10],[0,0x20],[0,0x20],[0,0x30],
+    [0,0x30],[0,0x40],[0,0x40],[0,0x50],[0,0x50],[0,0x60],
+    [0,0x70],[1,0x70],[1,0x70],[2,0x70],[2,0x70],
+    [3,0x70],[3,0x70],[4,0x70],[4,0x70],[5,0x70],
+    [5,0x70],[6,0x70],[6,0x70],[7,0x70],[7,0x70],
+    [7,0x71],[7,0x72],[7,0x73],[7,0x74],[7,0x75],[7,0x76]
+  ]
+};
+
+// ==========================================================================
+// 200-step parametric gradient generators
+// ==========================================================================
+
+// HSV to RGB (h in [0,6), s and v in [0,1])
+function hsv2rgb(h, s, v) {
+  h = ((h % 6) + 6) % 6;
+  const c = v * s;
+  const x = c * (1 - Math.abs(h % 2 - 1));
+  const m = v - c;
+  let r, g, b;
+  if (h < 1) { r=c; g=x; b=0; }
+  else if (h < 2) { r=x; g=c; b=0; }
+  else if (h < 3) { r=0; g=c; b=x; }
+  else if (h < 4) { r=0; g=x; b=c; }
+  else if (h < 5) { r=x; g=0; b=c; }
+  else { r=c; g=0; b=x; }
+  return [r+m, g+m, b+m];
+}
+
+// Lerp between two RGB float colors, then encode
+function lerpEncode(r1,g1,b1, r2,g2,b2, t) {
+  return encode(r1+(r2-r1)*t, g1+(g2-g1)*t, b1+(b2-b1)*t);
+}
+
+// Generate a 200-step gradient by defining waypoints at float positions [0..1]
+// waypoints: [{t, r, g, b}, ...] with r,g,b in 0..7
+function generateFromWaypoints(waypoints) {
+  const steps = [];
+  for (let i = 0; i < 200; i++) {
+    const t = i / 199;
+    // Find enclosing waypoints
+    let lo = waypoints[0], hi = waypoints[waypoints.length - 1];
+    for (let w = 0; w < waypoints.length - 1; w++) {
+      if (t >= waypoints[w].t && t <= waypoints[w+1].t) {
+        lo = waypoints[w]; hi = waypoints[w+1]; break;
+      }
+    }
+    const seg = (hi.t === lo.t) ? 0 : (t - lo.t) / (hi.t - lo.t);
+    steps.push(lerpEncode(lo.r, lo.g, lo.b, hi.r, hi.g, hi.b, seg));
+  }
+  return steps;
+}
+
+// --- Rainbow 200: Black → full saturated hue cycle → White ---
+gradients.rainbow200 = (function() {
+  const steps = [];
+  for (let i = 0; i < 200; i++) {
+    const t = i / 199;
+    if (t < 0.08) {
+      // Black → Red (brightness ramp)
+      const v = t / 0.08;
+      const [r,g,b] = hsv2rgb(0, 1, v);
+      steps.push(encode(r*7, g*7, b*7));
+    } else if (t > 0.92) {
+      // Last hue → White (saturation ramp + brightness)
+      const wt = (t - 0.92) / 0.08;
+      const [r,g,b] = hsv2rgb(5.8, 1, 1); // near magenta
+      steps.push(encode((r + wt*(1-r))*7, (g + wt*(1-g))*7, (b + wt*(1-b))*7));
+    } else {
+      // Full hue sweep: 0→6 (full circle)
+      const ht = (t - 0.08) / 0.84;
+      const h = ht * 6;
+      const [r,g,b] = hsv2rgb(h, 1, 1);
+      steps.push(encode(r*7, g*7, b*7));
+    }
+  }
+  return steps;
+})();
+
+// --- Sunset 200: Black → Deep Purple → Magenta → Red → Orange → Yellow → White ---
+gradients.sunset200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.05, r:1, g:0, b:2},
+  {t:0.12, r:2, g:0, b:4},
+  {t:0.18, r:3, g:0, b:7},   // deep purple
+  {t:0.25, r:5, g:0, b:6},   // magenta
+  {t:0.32, r:6, g:0, b:4},
+  {t:0.38, r:7, g:0, b:3},   // red-magenta
+  {t:0.44, r:7, g:0, b:1},
+  {t:0.50, r:7, g:0, b:0},   // pure red
+  {t:0.56, r:7, g:1, b:0},
+  {t:0.62, r:7, g:2, b:0},   // orange
+  {t:0.68, r:7, g:3, b:0},
+  {t:0.74, r:7, g:4, b:0},   // gold
+  {t:0.80, r:7, g:5, b:0},
+  {t:0.86, r:7, g:6, b:0},
+  {t:0.90, r:7, g:7, b:0},   // yellow
+  {t:0.94, r:7, g:7, b:2},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// --- Cubehelix 200: maximized unique colors via parameter sweep + oversampling ---
+// Oversamples cubehelix at high resolution, deduplicates to unique RGB333 entries,
+// sweeps rotations (up to 50), amplitude, and start angle to find the parameters
+// that produce the most unique colors along the path. Result distributed across 200 entries.
+// Empirical results: rot=1.5→52, rot=6→172, rot=10→236, rot=20→284, rot=50→~320+
+gradients.cubehelix200 = (function() {
+  function cubehelix(t, startAngle, rotations, amp) {
+    const angle = 2 * Math.PI * (startAngle / 3 + rotations * t);
+    const a = amp * t * (1 - t);
+    const r = t + a * (-0.14861 * Math.cos(angle) + 1.78277 * Math.sin(angle));
+    const g = t + a * (-0.29227 * Math.cos(angle) - 0.90649 * Math.sin(angle));
+    const b = t + a * (1.97294 * Math.cos(angle));
+    return [Math.max(0, Math.min(1, r)), Math.max(0, Math.min(1, g)), Math.max(0, Math.min(1, b))];
+  }
+
+  function tryCubehelix(startAngle, rotations, ampScale, samples) {
+    const unique = [];
+    const seen = new Set();
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const [rf, gf, bf] = cubehelix(t, startAngle, rotations, ampScale);
+      const ri = Math.min(7, Math.max(0, Math.round(rf * 7)));
+      const gi = Math.min(7, Math.max(0, Math.round(gf * 7)));
+      const bi = Math.min(7, Math.max(0, Math.round(bf * 7)));
+      const key = (ri << 6) | (gi << 3) | bi;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push([ri, (gi << 4) | bi]);
+      }
+    }
+    return unique;
+  }
+
+  // Parameter sweep — high rotations cross more RGB333 grid points
+  let best = [], bestCount = 0, bestParams = {};
+  // Scale samples with rotations to ensure we don't miss grid crossings
+  // Phase 1: broad sweep rot 5-50
+  for (let rot = 5; rot <= 50; rot += 5) {
+    const samples = Math.max(10000, rot * 1000);
+    for (let amp10 = 13; amp10 <= 25; amp10 += 2) {
+      for (let start10 = 0; start10 <= 30; start10 += 5) {
+        const result = tryCubehelix(start10 / 10, rot, amp10 / 10, samples);
+        if (result.length > bestCount) {
+          bestCount = result.length;
+          best = result;
+          bestParams = {start: start10/10, rot, amp: amp10/10};
+        }
+      }
+    }
+  }
+  // Phase 2: fine-tune around best rotation ±3
+  const bestRot = bestParams.rot;
+  for (let rot = Math.max(3, bestRot - 3); rot <= bestRot + 3; rot++) {
+    const samples = Math.max(10000, rot * 1000);
+    for (let amp10 = 13; amp10 <= 25; amp10++) {
+      for (let start10 = 0; start10 <= 30; start10 += 2) {
+        const result = tryCubehelix(start10 / 10, rot, amp10 / 10, samples);
+        if (result.length > bestCount) {
+          bestCount = result.length;
+          best = result;
+          bestParams = {start: start10/10, rot, amp: amp10/10};
+        }
+      }
+    }
+  }
+
+  console.log(`Cubehelix200: ${bestCount} unique RGB333 colors (rot=${bestParams.rot}, amp=${bestParams.amp}, start=${bestParams.start})`);
+
+  // Store full unique list for 3-column split
+  window._cubehelixAll = best;
+  window._cubehelixPoolSize = bestCount;
+
+  // Distribute unique colors evenly across 200 entries
+  const steps = [];
+  if (best.length >= 200) {
+    for (let i = 0; i < 200; i++) {
+      const idx = Math.round(i * (best.length - 1) / 199);
+      steps.push(best[idx]);
+    }
+  } else {
+    for (let i = 0; i < 200; i++) {
+      const idx = Math.min(best.length - 1, Math.floor(i * best.length / 200));
+      steps.push(best[idx]);
+    }
+  }
+  return steps;
+})();
+
+// --- Cubehelix 3-column split: all unique cubehelix colors across 3 columns ---
+(function() {
+  const all = window._cubehelixAll || [];
+  const cols = [[], [], []];
+  for (let i = 0; i < all.length; i++) cols[i % 3].push(all[i]);
+  // Pad each to 200 entries by repeating last
+  for (let c = 0; c < 3; c++) {
+    while (cols[c].length < 200) cols[c].push(cols[c][cols[c].length - 1]);
+  }
+  gradients['cubehelix_col1'] = cols[0];
+  gradients['cubehelix_col2'] = cols[1];
+  gradients['cubehelix_col3'] = cols[2];
+  console.log(`CubehelixSplit: ${all.length} unique across 3 cols (${cols[0].length}+${cols[1].length}+${cols[2].length})`);
+})();
+
+// --- Fire 200: Black → Dark Red → Red → Orange → Yellow → White ---
+gradients.fire200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.10, r:2, g:0, b:0},
+  {t:0.20, r:4, g:0, b:0},
+  {t:0.30, r:6, g:0, b:0},
+  {t:0.38, r:7, g:0, b:0},   // pure red
+  {t:0.46, r:7, g:1, b:0},
+  {t:0.54, r:7, g:2, b:0},
+  {t:0.62, r:7, g:3, b:0},   // orange
+  {t:0.70, r:7, g:5, b:0},
+  {t:0.78, r:7, g:6, b:0},
+  {t:0.84, r:7, g:7, b:0},   // yellow
+  {t:0.90, r:7, g:7, b:3},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// --- Ocean 200: Black → Deep Blue → Blue → Cyan → White ---
+gradients.ocean200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.10, r:0, g:0, b:2},
+  {t:0.20, r:0, g:0, b:4},
+  {t:0.30, r:0, g:0, b:7},   // pure blue
+  {t:0.40, r:0, g:2, b:7},
+  {t:0.50, r:0, g:4, b:7},
+  {t:0.60, r:0, g:6, b:7},
+  {t:0.68, r:0, g:7, b:7},   // cyan
+  {t:0.76, r:2, g:7, b:7},
+  {t:0.84, r:4, g:7, b:7},
+  {t:0.92, r:6, g:7, b:7},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// --- Purple 200: Black → Indigo → Purple → Magenta → Pink → White ---
+gradients.purple200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.08, r:1, g:0, b:1},
+  {t:0.15, r:1, g:0, b:3},
+  {t:0.22, r:2, g:0, b:5},   // indigo
+  {t:0.30, r:3, g:0, b:7},
+  {t:0.38, r:4, g:0, b:7},   // purple
+  {t:0.46, r:5, g:0, b:6},
+  {t:0.54, r:6, g:0, b:5},   // magenta
+  {t:0.62, r:7, g:0, b:4},
+  {t:0.68, r:7, g:0, b:3},
+  {t:0.74, r:7, g:1, b:3},   // pink
+  {t:0.80, r:7, g:2, b:4},
+  {t:0.86, r:7, g:3, b:5},
+  {t:0.92, r:7, g:5, b:6},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// --- Forest 200: Black → Dark Green → Green → Yellow-Green → Yellow → White ---
+gradients.forest200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.10, r:0, g:1, b:0},
+  {t:0.18, r:0, g:3, b:0},
+  {t:0.26, r:0, g:5, b:0},
+  {t:0.34, r:0, g:7, b:0},   // pure green
+  {t:0.42, r:1, g:7, b:0},
+  {t:0.50, r:2, g:7, b:0},
+  {t:0.58, r:3, g:7, b:0},   // yellow-green
+  {t:0.66, r:5, g:7, b:0},
+  {t:0.74, r:6, g:7, b:0},
+  {t:0.80, r:7, g:7, b:0},   // yellow
+  {t:0.86, r:7, g:7, b:2},
+  {t:0.92, r:7, g:7, b:4},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// --- Red 200: Black → Red → Pink → White ---
+gradients.red200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.08, r:1, g:0, b:0},
+  {t:0.16, r:2, g:0, b:0},
+  {t:0.24, r:3, g:0, b:0},
+  {t:0.32, r:5, g:0, b:0},
+  {t:0.40, r:7, g:0, b:0},   // pure red
+  {t:0.50, r:7, g:1, b:0},
+  {t:0.58, r:7, g:2, b:1},
+  {t:0.66, r:7, g:3, b:2},
+  {t:0.74, r:7, g:4, b:3},
+  {t:0.82, r:7, g:5, b:4},
+  {t:0.90, r:7, g:6, b:5},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// --- Green 200: Black → Green → Light Green → White ---
+gradients.green200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.08, r:0, g:1, b:0},
+  {t:0.16, r:0, g:2, b:0},
+  {t:0.24, r:0, g:3, b:0},
+  {t:0.32, r:0, g:5, b:0},
+  {t:0.40, r:0, g:7, b:0},   // pure green
+  {t:0.50, r:1, g:7, b:0},
+  {t:0.58, r:2, g:7, b:1},
+  {t:0.66, r:3, g:7, b:2},
+  {t:0.74, r:4, g:7, b:3},
+  {t:0.82, r:5, g:7, b:5},
+  {t:0.90, r:6, g:7, b:6},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// --- Blue 200: Black → Blue → Light Blue → White ---
+gradients.blue200 = generateFromWaypoints([
+  {t:0.00, r:0, g:0, b:0},
+  {t:0.08, r:0, g:0, b:1},
+  {t:0.16, r:0, g:0, b:2},
+  {t:0.24, r:0, g:0, b:4},
+  {t:0.32, r:0, g:0, b:5},
+  {t:0.40, r:0, g:0, b:7},   // pure blue
+  {t:0.50, r:0, g:1, b:7},
+  {t:0.58, r:1, g:2, b:7},
+  {t:0.66, r:2, g:3, b:7},
+  {t:0.74, r:3, g:4, b:7},
+  {t:0.82, r:4, g:5, b:7},
+  {t:0.90, r:5, g:6, b:7},
+  {t:1.00, r:7, g:7, b:7},   // white
+]);
+
+// ==========================================================================
+// All 512 RGB333 colors — generated by luminance sort (L=30R+59G+11B)
+// ==========================================================================
+
+function generateAll512() {
+  const colors = [];
+  for (let r = 0; r <= 7; r++)
+    for (let g = 0; g <= 7; g++)
+      for (let b = 0; b <= 7; b++)
+        colors.push({ r, g, b, L: 30*r + 59*g + 11*b, enc: [r, (g<<4)|b] });
+
+  colors.sort((a, b) => a.L - b.L || a.r - b.r || a.g - b.g || a.b - b.b);
+
+  const cols = [[], [], []];
+  for (let i = 0; i < colors.length; i++)
+    cols[i % 3].push(colors[i].enc);
+
+  // Pad to 200 entries
+  for (let c = 0; c < 3; c++)
+    while (cols[c].length < 200) cols[c].push(cols[c][cols[c].length - 1]);
+
+  return cols;
+}
+
+const all512 = generateAll512();
+gradients['512_col1'] = all512[0];
+gradients['512_col2'] = all512[1];
+gradients['512_col3'] = all512[2];
+
+// ==========================================================================
+// Preset mode definitions (match hardware modes in cgaflip9.asm)
+// ==========================================================================
+
+const presetDefs = [
+  { name: "Sunset / Rainbow / Cubehelix", g1: "sunset",   g2: "rainbow",  g3: "cubehelix" },
+  { name: "Red / Green / Blue",           g1: "red",      g2: "green",    g3: "blue" },
+  { name: "All 512 RGB333 colors",        g1: "512_col1", g2: "512_col2", g3: "512_col3" },
+  { name: "Sunset200 / Rainbow200 / Cubehelix200", g1: "sunset200", g2: "rainbow200", g3: "cubehelix200" },
+  { name: "Fire200 / Ocean200 / Purple200", g1: "fire200", g2: "ocean200", g3: "purple200" },
+  { name: "Red200 / Green200 / Blue200",   g1: "red200",   g2: "green200", g3: "blue200" },
+  { name: "Cubehelix Max (~296 unique)",    g1: "cubehelix_col1", g2: "cubehelix_col2", g3: "cubehelix_col3" }
+];
+
+// Column widths: 27 bytes pix1 (108px) + 26 bytes pix2 (104px) + 27 bytes pix3 (108px) = 320px
+const COL1_W = 108, COL2_W = 104, COL3_W = 108;
+
+function getGradient(name) { return gradients[name] || gradients.rainbow; }
+
+function applyPreset() {
+  const sel = document.getElementById('preset');
+  const val = sel.value;
+  if (val === 'custom') { render(); return; }
+  const p = presetDefs[parseInt(val)];
+  document.getElementById('grad1').value = p.g1;
+  document.getElementById('grad2').value = p.g2;
+  document.getElementById('grad3').value = p.g3;
+  render();
+}
+
+function setCustom() {
+  document.getElementById('preset').value = 'custom';
+}
+
+function render() {
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d');
+  const zoomed = document.getElementById('zoomed');
+  const zctx = zoomed.getContext('2d');
+
+  const col1 = getGradient(document.getElementById('grad1').value);
+  const col2 = getGradient(document.getElementById('grad2').value);
+  const col3 = getGradient(document.getElementById('grad3').value);
+
+  // Track unique colors
+  const uniqueColors = new Set();
+
+  for (let y = 0; y < 200; y++) {
+    // Each gradient independently maps its steps across 200 lines
+    function getStep(grad) {
+      return Math.min(Math.floor(y * (grad.length - 1) / 199), grad.length - 1);
+    }
+
+    const c1 = decode(...col1[getStep(col1)]);
+    const c2 = decode(...col2[getStep(col2)]);
+    const c3 = decode(...col3[getStep(col3)]);
+
+    uniqueColors.add(`${c1.r},${c1.g},${c1.b}`);
+    uniqueColors.add(`${c2.r},${c2.g},${c2.b}`);
+    uniqueColors.add(`${c3.r},${c3.g},${c3.b}`);
+
+    ctx.fillStyle = rgb333(c1.r, c1.g, c1.b);
+    ctx.fillRect(0, y, COL1_W, 1);
+    ctx.fillStyle = rgb333(c2.r, c2.g, c2.b);
+    ctx.fillRect(COL1_W, y, COL2_W, 1);
+    ctx.fillStyle = rgb333(c3.r, c3.g, c3.b);
+    ctx.fillRect(COL1_W + COL2_W, y, COL3_W, 1);
+  }
+
+  zctx.imageSmoothingEnabled = false;
+  zctx.drawImage(canvas, 0, 0, 640, 400);
+
+  const presetSel = document.getElementById('preset');
+  const modeName = presetSel.value === 'custom' ? 'Custom' : presetDefs[parseInt(presetSel.value)].name;
+  document.getElementById('stats').textContent =
+    `${modeName} — ${uniqueColors.size} unique colors on screen` +
+    (window._cubehelixPoolSize ? ` (cubehelix pool: ${window._cubehelixPoolSize})` : '');
+
+  updateLegend(col1, col2, col3);
+}
+
+function updateLegend(col1, col2, col3) {
+  let html = '<tr><th colspan="3">CGAFLIP9 — Per-Scanline Full-Palette Technique</th></tr>';
+  html += '<tr><td colspan="3"><br><b>Screen Layout (static VRAM):</b></td></tr>';
+  html += '<tr><td></td><td>Col 1 (108px):</td><td>pix1 (0x55) → E2 on even, E3 on odd</td></tr>';
+  html += '<tr><td></td><td>Col 2 (104px):</td><td>pix2 (0xAA) → E4 on even, E5 on odd</td></tr>';
+  html += '<tr><td></td><td>Col 3 (108px):</td><td>pix3 (0xFF) → E6 on even, E7 on odd</td></tr>';
+
+  html += '<tr><td colspan="3"><br><b>Deferred Open/Close Pattern:</b></td></tr>';
+  html += '<tr><td></td><td>Even HBLANK:</td><td>Flip to PAL0 + 12×OUTSB (write E2-E7) — ~119 cycles</td></tr>';
+  html += '<tr><td></td><td>Odd HBLANK:</td><td>Flip to PAL1 + Close + Open at E2 — ~37 cycles</td></tr>';
+
+  html += '<tr><td colspan="3"><br><b>OUTSB Buffer (per even line, 12 bytes):</b></td></tr>';
+  html += '<tr><td></td><td>E2,E3:</td><td>Col1 even color (passthrough) + Col1 odd color (prep)</td></tr>';
+  html += '<tr><td></td><td>E4,E5:</td><td>Col2 even color (passthrough) + Col2 odd color (prep)</td></tr>';
+  html += '<tr><td></td><td>E6,E7:</td><td>Col3 even color (passthrough) + Col3 odd color (prep)</td></tr>';
+
+  // Show sample entries
+  html += '<tr><td colspan="3"><br><b>Sample entries (line → Col1 / Col2 / Col3):</b></td></tr>';
+  const sampleLines = [0, 1, 2, 50, 100, 150, 197, 198, 199];
+  for (const y of sampleLines) {
+    function getStep(grad) {
+      return Math.min(Math.floor(y * (grad.length - 1) / 199), grad.length - 1);
+    }
+    const c1 = decode(...col1[getStep(col1)]);
+    const c2 = decode(...col2[getStep(col2)]);
+    const c3 = decode(...col3[getStep(col3)]);
+    html += `<tr>
+      <td>Line ${y}:</td>
+      <td>
+        <span class="swatch" style="background:${rgb333(c1.r,c1.g,c1.b)}"></span>
+        R${c1.r}G${c1.g}B${c1.b}
+      </td>
+      <td>
+        <span class="swatch" style="background:${rgb333(c2.r,c2.g,c2.b)}"></span>
+        R${c2.r}G${c2.g}B${c2.b}
+        &nbsp;
+        <span class="swatch" style="background:${rgb333(c3.r,c3.g,c3.b)}"></span>
+        R${c3.r}G${c3.g}B${c3.b}
+      </td>
+    </tr>`;
+  }
+
+  document.getElementById('legendTable').innerHTML = html;
+}
+
+render();
+</script>
+</body>
+</html>

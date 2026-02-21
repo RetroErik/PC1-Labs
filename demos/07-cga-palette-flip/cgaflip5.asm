@@ -2,6 +2,9 @@
 ; CGAFLIP5.ASM - CGA Palette Flip — Split-Screen Proof-of-Concept
 ; ============================================================================
 ;
+; Part 4 of 8 — Proves palette flip (0xD9) alone is stable. No streaming = no flicker.
+;   Next: cgaflip6 uses row-dithered VRAM for 7 perceived colors.
+;
 ; CONFIRMED RESULT (February 2026, real PC1 hardware):
 ;
 ;   Per-scanline palette FLIP via port 0xD9 is PERFECTLY STABLE.

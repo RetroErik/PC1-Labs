@@ -2,6 +2,9 @@
 ; CGAFLIP3.ASM - CGA Palette Flip + Per-Scanline Entry 2 Rainbow Gradient
 ; ============================================================================
 ;
+; Part 2 of 8 — Moves gradient to entry 2, fixing border flicker from cgaflip2.
+;   Next: cgaflip4 attempts visible-area streaming (fails — causes blinking).
+;
 ; DEMONSTRATION: Combines TWO techniques in 320x200x4 CGA mode:
 ;
 ;   1. PALETTE FLIP via port 0xD9 — alternates CGA palette 0/1 per scanline

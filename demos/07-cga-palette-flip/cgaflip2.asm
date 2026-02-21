@@ -2,6 +2,9 @@
 ; CGAFLIP2.ASM - CGA Palette Flip + Per-Scanline Palette RAM Recolor
 ; ============================================================================
 ;
+; Part 1 of 8 — First working palette flip. Entry 0 gradient during HBLANK.
+;   Next: cgaflip3 fixes the border flicker by targeting entry 2 instead.
+;
 ; DEMONSTRATION: Combines TWO techniques in 320x200x4 CGA mode:
 ;
 ;   1. PALETTE FLIP via port 0xD9 — alternates CGA palette 0/1 per scanline

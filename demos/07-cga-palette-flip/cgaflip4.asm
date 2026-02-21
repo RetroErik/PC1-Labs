@@ -2,6 +2,9 @@
 ; CGAFLIP4.ASM - CGA Palette Flip + Visible-Area Palette Reprogramming
 ; ============================================================================
 ;
+; Part 3 of 8 — Experimental: visible-area palette streaming. CAUSES BLINKING.
+;   Next: cgaflip5 proves the palette flip itself is stable (blinking = protocol).
+;
 ; EXPERIMENT: Reprogram ALL palette entries during the visible scanline
 ; area, not during HBLANK. Palette flip (1 OUT to 0xD9) during HBLANK,
 ; then stream all 8 entries via 0xDD/0xDE during the visible area.

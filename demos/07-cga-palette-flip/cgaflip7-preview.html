@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>CGAFLIP7 Preview — E2 Three Independent Gradients</title>
+<style>
+  body { background: #222; color: #eee; font-family: monospace; text-align: center; }
+  canvas { border: 1px solid #555; image-rendering: pixelated; margin: 10px; }
+  .controls { margin: 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+  .control-group { text-align: left; }
+  .control-group label { display: block; margin-bottom: 4px; font-weight: bold; }
+  select, button { font-family: monospace; font-size: 14px; padding: 4px 8px; margin: 2px; }
+  .legend { display: inline-block; text-align: left; margin: 20px; vertical-align: top; }
+  .legend td { padding: 2px 8px; }
+  .swatch { display: inline-block; width: 16px; height: 16px; border: 1px solid #888; vertical-align: middle; }
+  h2 { margin-top: 30px; }
+</style>
+</head>
+<body>
+<h1>CGAFLIP7 Preview</h1>
+<p>E2 = 3 independent gradients via VRAM rotation | V6355D RGB333</p>
+
+<div class="controls">
+  <div class="control-group">
+    <label>Column 1 gradient:</label>
+    <select id="grad1" onchange="render()">
+      <option value="red" selected>Pure Red</option>
+      <option value="green">Pure Green</option>
+      <option value="blue">Pure Blue</option>
+      <option value="rainbow">Rainbow</option>
+      <option value="fire">Fire (Red→Yellow→White)</option>
+      <option value="ocean">Ocean (Dark Blue→Cyan→White)</option>
+      <option value="cubehelix">Cubehelix Spiral</option>
+      <option value="purple">Purple Fade</option>
+      <option value="forest">Forest (Black→Green→Yellow)</option>
+      <option value="sunset">Sunset (Purple→Red→Orange→Gold)</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>Column 2 gradient:</label>
+    <select id="grad2" onchange="render()">
+      <option value="green" selected>Pure Green</option>
+      <option value="red">Pure Red</option>
+      <option value="blue">Pure Blue</option>
+      <option value="rainbow">Rainbow</option>
+      <option value="fire">Fire (Red→Yellow→White)</option>
+      <option value="ocean">Ocean (Dark Blue→Cyan→White)</option>
+      <option value="cubehelix">Cubehelix Spiral</option>
+      <option value="purple">Purple Fade</option>
+      <option value="forest">Forest (Black→Green→Yellow)</option>
+      <option value="sunset">Sunset (Purple→Red→Orange→Gold)</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>Column 3 gradient:</label>
+    <select id="grad3" onchange="render()">
+      <option value="blue" selected>Pure Blue</option>
+      <option value="red">Pure Red</option>
+      <option value="green">Pure Green</option>
+      <option value="rainbow">Rainbow</option>
+      <option value="fire">Fire (Red→Yellow→White)</option>
+      <option value="ocean">Ocean (Dark Blue→Cyan→White)</option>
+      <option value="cubehelix">Cubehelix Spiral</option>
+      <option value="purple">Purple Fade</option>
+      <option value="forest">Forest (Black→Green→Yellow)</option>
+      <option value="sunset">Sunset (Purple→Red→Orange→Gold)</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>Static entries (E3-E7):</label>
+    <select id="preset" onchange="render()">
+      <option value="auto" selected>Auto-match (darken gradient)</option>
+      <option value="dark">Dark Neutrals</option>
+      <option value="gray">Gray Scale</option>
+      <option value="black">All Black (gradient only)</option>
+    </select>
+  </div>
+</div>
+
+<canvas id="screen" width="320" height="200"></canvas>
+<canvas id="zoomed" width="640" height="400"></canvas>
+
+<table class="legend" id="legendTable"></table>
+
+<script>
+// V6355D RGB333 → CSS color
+function rgb333(r, g, b) {
+  return `rgb(${Math.round(r*255/7)},${Math.round(g*255/7)},${Math.round(b*255/7)})`;
+}
+
+function decode(R, GB) {
+  return { r: R & 7, g: (GB >> 4) & 7, b: GB & 7 };
+}
+
+function encode(r, g, b) {
+  return [Math.min(7, Math.max(0, Math.round(r))), (Math.min(7, Math.max(0, Math.round(g))) << 4) | Math.min(7, Math.max(0, Math.round(b)))];
+}
+
+function darken(c) {
+  return { r: Math.max(0, c.r - 1), g: Math.max(0, c.g - 1), b: Math.max(0, c.b - 1) };
+}
+
+// ==========================================================================
+// Gradient definitions — 34 steps each, V6355D RGB333 [R, G<<4|B]
+// ==========================================================================
+
+const gradients = {
+  // Pure Red: black → deep red → bright red → pink → white
+  // 34 steps: 8 levels of pure red (R0-R7), then add G, then add B
+  red: [
+    [0,0x00],[1,0x00],[1,0x00],[2,0x00],[2,0x00],[3,0x00],[3,0x00],
+    [4,0x00],[4,0x00],[5,0x00],[5,0x00],[6,0x00],[6,0x00],
+    [7,0x00],[7,0x00],[7,0x10],[7,0x10],[7,0x20],
+    [7,0x20],[7,0x30],[7,0x30],[7,0x40],[7,0x40],
+    [7,0x50],[7,0x50],[7,0x51],[7,0x62],[7,0x62],
+    [7,0x63],[7,0x63],[7,0x74],[7,0x75],[7,0x76],[7,0x77]
+  ],
+  // Pure Green: black → deep green → bright green → light green → white
+  green: [
+    [0,0x00],[0,0x10],[0,0x10],[0,0x20],[0,0x20],[0,0x30],[0,0x30],
+    [0,0x40],[0,0x40],[0,0x50],[0,0x50],[0,0x60],[0,0x60],
+    [0,0x70],[0,0x70],[1,0x70],[1,0x70],[2,0x70],
+    [2,0x70],[3,0x70],[3,0x70],[4,0x70],[4,0x70],
+    [5,0x70],[5,0x71],[5,0x71],[6,0x72],[6,0x72],
+    [6,0x73],[6,0x73],[7,0x74],[7,0x75],[7,0x76],[7,0x77]
+  ],
+  // Pure Blue: black → deep blue → bright blue → light blue → white
+  blue: [
+    [0,0x00],[0,0x01],[0,0x01],[0,0x02],[0,0x02],[0,0x03],[0,0x03],
+    [0,0x04],[0,0x04],[0,0x05],[0,0x05],[0,0x06],[0,0x06],
+    [0,0x07],[0,0x07],[0,0x17],[0,0x17],[0,0x27],
+    [0,0x27],[0,0x37],[0,0x37],[0,0x47],[0,0x47],
+    [0,0x57],[1,0x57],[1,0x57],[2,0x67],[2,0x67],
+    [3,0x67],[3,0x67],[4,0x77],[5,0x77],[6,0x77],[7,0x77]
+  ],
+  rainbow: [
+    [7,0x00],[7,0x10],[7,0x20],[7,0x30],[7,0x40],[7,0x50],[7,0x70],
+    [6,0x70],[5,0x70],[4,0x70],[3,0x70],[2,0x70],[0,0x70],
+    [0,0x71],[0,0x72],[0,0x73],[0,0x75],[0,0x77],
+    [0,0x67],[0,0x57],[0,0x47],[0,0x37],[0,0x27],[0,0x17],[0,0x07],
+    [1,0x07],[2,0x07],[3,0x07],[4,0x07],[5,0x07],
+    [5,0x06],[6,0x05],[7,0x04],[7,0x02]
+  ],
+  fire: [
+    [1,0x00],[2,0x00],[3,0x00],[4,0x00],[5,0x00],[6,0x00],[7,0x00],
+    [7,0x00],[7,0x10],[7,0x10],[7,0x20],[7,0x20],[7,0x30],
+    [7,0x30],[7,0x40],[7,0x40],[7,0x50],[7,0x50],
+    [7,0x60],[7,0x60],[7,0x70],[7,0x70],[7,0x71],
+    [7,0x72],[7,0x73],[7,0x74],[7,0x75],[7,0x76],
+    [7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77]
+  ],
+  ocean: [
+    [0,0x01],[0,0x02],[0,0x03],[0,0x04],[0,0x05],[0,0x06],[0,0x07],
+    [0,0x17],[0,0x27],[0,0x37],[0,0x47],[0,0x57],[0,0x67],
+    [0,0x77],[0,0x77],[1,0x77],[1,0x77],[2,0x77],
+    [2,0x77],[3,0x77],[3,0x77],[4,0x77],[4,0x77],
+    [5,0x77],[5,0x77],[6,0x77],[6,0x77],[7,0x77],
+    [7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77],[7,0x77]
+  ],
+  cubehelix: (function() {
+    // Attempt at cubehelix-like spiral through RGB333 space
+    const steps = [];
+    for (let i = 0; i < 34; i++) {
+      const t = i / 33;
+      const angle = 2 * Math.PI * (0.5 + 1.5 * t); // 1.5 rotations
+      const amp = t * (1 - t) * 2.5;
+      const r = t + amp * (-0.14861 * Math.cos(angle) + 1.78277 * Math.sin(angle));
+      const g = t + amp * (-0.29227 * Math.cos(angle) - 0.90649 * Math.sin(angle));
+      const b = t + amp * (1.97294 * Math.cos(angle));
+      steps.push(encode(r * 7, g * 7, b * 7));
+    }
+    return steps;
+  })(),
+  purple: [
+    [0,0x00],[0,0x01],[1,0x01],[1,0x02],[1,0x03],[2,0x03],[2,0x04],
+    [2,0x05],[3,0x05],[3,0x06],[3,0x07],[4,0x07],[4,0x06],
+    [5,0x06],[5,0x07],[5,0x06],[6,0x06],[6,0x05],
+    [7,0x05],[7,0x04],[7,0x04],[7,0x03],[7,0x03],
+    [7,0x02],[7,0x02],[7,0x13],[7,0x24],[7,0x35],
+    [7,0x46],[7,0x57],[7,0x67],[7,0x77],[7,0x77],[7,0x77]
+  ],
+  forest: [
+    [0,0x00],[0,0x00],[0,0x10],[0,0x10],[0,0x20],[0,0x20],[0,0x30],
+    [0,0x30],[0,0x40],[0,0x40],[0,0x50],[0,0x50],[0,0x60],
+    [0,0x70],[1,0x70],[1,0x70],[2,0x70],[2,0x70],
+    [3,0x70],[3,0x70],[4,0x70],[4,0x70],[5,0x70],
+    [5,0x70],[6,0x70],[6,0x70],[7,0x70],[7,0x70],
+    [7,0x71],[7,0x72],[7,0x73],[7,0x74],[7,0x75],[7,0x76]
+  ],
+  sunset: [
+    [1,0x03],[2,0x04],[2,0x05],[3,0x06],[3,0x07],[4,0x07],[4,0x06],
+    [5,0x06],[5,0x05],[6,0x05],[6,0x04],[7,0x04],[7,0x03],
+    [7,0x02],[7,0x01],[7,0x00],[7,0x00],[7,0x10],
+    [7,0x10],[7,0x20],[7,0x20],[7,0x30],[7,0x30],
+    [7,0x40],[7,0x40],[7,0x50],[7,0x50],[7,0x60],
+    [7,0x60],[7,0x70],[7,0x70],[7,0x71],[7,0x72],[7,0x73]
+  ]
+};
+
+// Static color presets: [E3, E4, E5, E6, E7] as [R, G<<4|B]
+const presets = {
+  dark: [[2,0x10],[1,0x12],[1,0x01],[2,0x02],[1,0x11]],
+  gray: [[2,0x22],[3,0x33],[2,0x22],[4,0x44],[3,0x33]],
+  black: [[0,0x00],[0,0x00],[0,0x00],[0,0x00],[0,0x00]]
+};
+
+const COL1_W = 107, COL2_W = 106, COL3_W = 107;
+
+function getGradient(name) { return gradients[name] || gradients.rainbow; }
+
+function render() {
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d');
+  const zoomed = document.getElementById('zoomed');
+  const zctx = zoomed.getContext('2d');
+
+  const grad1 = getGradient(document.getElementById('grad1').value);
+  const grad2 = getGradient(document.getElementById('grad2').value);
+  const grad3 = getGradient(document.getElementById('grad3').value);
+  const presetKey = document.getElementById('preset').value;
+
+  // Static entries — auto-match darkens each column's gradient midpoint
+  let e3, e4, e5, e6, e7;
+  if (presetKey === 'auto') {
+    // E3 = darkened blend of all 3 gradient's midpoint
+    const mid1 = decode(...grad1[Math.floor(grad1.length/2)]);
+    const mid2 = decode(...grad2[Math.floor(grad2.length/2)]);
+    const mid3 = decode(...grad3[Math.floor(grad3.length/2)]);
+    e3 = darken(darken(mid1)); // col1 odd-line companion
+    e4 = darken(mid2);         // col2 even static (pal 0)
+    e5 = darken(darken(mid2)); // col2 odd static  (pal 1)
+    e6 = darken(mid3);         // col3 even static (pal 0)
+    e7 = darken(darken(mid3)); // col3 odd static  (pal 1)
+  } else {
+    [e3,e4,e5,e6,e7] = presets[presetKey].map(([R,GB]) => decode(R,GB));
+  }
+
+  for (let y = 0; y < 200; y++) {
+    const isEven = (y % 2 === 0);
+    const cyclePos = y % 6;
+
+    // Which column gets E2 on this line's even turn?
+    // cyclePos 0,1 → col1; 2,3 → col3; 4,5 → col2
+    let e2grad;
+    if (cyclePos < 2) e2grad = grad1;
+    else if (cyclePos < 4) e2grad = grad3;
+    else e2grad = grad2;
+
+    // Gradient step: each column advances 1 step per 6 lines
+    const step = Math.floor(y / 6);
+    const gradIdx = Math.min(step, e2grad.length - 1);
+    const e2 = decode(...e2grad[gradIdx]);
+
+    // VRAM pixel assignment
+    let col1pix, col2pix, col3pix;
+    if (cyclePos < 2) {
+      col1pix = 1; col2pix = 2; col3pix = 3;
+    } else if (cyclePos < 4) {
+      col1pix = 3; col2pix = 2; col3pix = 1;
+    } else {
+      col1pix = 2; col2pix = 1; col3pix = 3;
+    }
+
+    function pixToColor(pix) {
+      if (pix === 0) return {r:0,g:0,b:0};
+      if (isEven) {
+        if (pix === 1) return e2;
+        if (pix === 2) return e4;
+        if (pix === 3) return e6;
+      } else {
+        if (pix === 1) return e3;
+        if (pix === 2) return e5;
+        if (pix === 3) return e7;
+      }
+    }
+
+    const c1 = pixToColor(col1pix);
+    const c2 = pixToColor(col2pix);
+    const c3 = pixToColor(col3pix);
+
+    ctx.fillStyle = rgb333(c1.r, c1.g, c1.b);
+    ctx.fillRect(0, y, COL1_W, 1);
+    ctx.fillStyle = rgb333(c2.r, c2.g, c2.b);
+    ctx.fillRect(COL1_W, y, COL2_W, 1);
+    ctx.fillStyle = rgb333(c3.r, c3.g, c3.b);
+    ctx.fillRect(COL1_W + COL2_W, y, COL3_W, 1);
+  }
+
+  zctx.imageSmoothingEnabled = false;
+  zctx.drawImage(canvas, 0, 0, 640, 400);
+  updateLegend(e3,e4,e5,e6,e7);
+}
+
+function updateLegend(e3,e4,e5,e6,e7) {
+  const entries = [
+    {name:'E0 (bg/border)', c:{r:0,g:0,b:0}, note:'always black'},
+    {name:'E2 (gradient)', c:{r:7,g:0,b:0}, note:'per-scanline, 3 independent gradients'},
+    {name:'E3 (static)', c:e3, note:`R${e3.r} G${e3.g} B${e3.b} — odd-line fill`},
+    {name:'E4 (static)', c:e4, note:`R${e4.r} G${e4.g} B${e4.b} — even pix2`},
+    {name:'E5 (static)', c:e5, note:`R${e5.r} G${e5.g} B${e5.b} — odd pix2`},
+    {name:'E6 (static)', c:e6, note:`R${e6.r} G${e6.g} B${e6.b} — even pix3`},
+    {name:'E7 (static)', c:e7, note:`R${e7.r} G${e7.g} B${e7.b} — odd pix3`},
+  ];
+
+  let html = '<tr><th colspan="3">Palette Entries</th></tr>';
+  for (const e of entries) {
+    html += `<tr>
+      <td><span class="swatch" style="background:${rgb333(e.c.r,e.c.g,e.c.b)}"></span></td>
+      <td>${e.name}</td>
+      <td>${e.note}</td>
+    </tr>`;
+  }
+  html += `<tr><td colspan="3"><br><b>6-line cycle (E2 serves different gradient per column):</b></td></tr>`;
+  html += `<tr><td></td><td>Row 0 (even):</td><td>Col1=pix1(<b>E2=grad1</b>) Col2=pix2(E4) Col3=pix3(E6)</td></tr>`;
+  html += `<tr><td></td><td>Row 1 (odd):</td><td>Col1=pix1(E3) Col2=pix2(E5) Col3=pix3(E7)</td></tr>`;
+  html += `<tr><td></td><td>Row 2 (even):</td><td>Col1=pix3(E6) Col2=pix2(E4) Col3=pix1(<b>E2=grad3</b>)</td></tr>`;
+  html += `<tr><td></td><td>Row 3 (odd):</td><td>Col1=pix3(E7) Col2=pix2(E5) Col3=pix1(E3)</td></tr>`;
+  html += `<tr><td></td><td>Row 4 (even):</td><td>Col1=pix2(E4) Col2=pix1(<b>E2=grad2</b>) Col3=pix3(E6)</td></tr>`;
+  html += `<tr><td></td><td>Row 5 (odd):</td><td>Col1=pix2(E5) Col2=pix1(E3) Col3=pix3(E7)</td></tr>`;
+  document.getElementById('legendTable').innerHTML = html;
+}
+
+render();
+</script>
+</body>
+</html>
