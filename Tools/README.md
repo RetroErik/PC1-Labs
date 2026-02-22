@@ -173,6 +173,39 @@ test_r12r13.com filename.bmp
 
 ---
 
+### flip-hidden-test.asm — Port 0xD9 Bit 5 Palette Flip Test (Hidden Mode)
+
+Tests whether the CGA palette select bit (port `0xD9` bit 5) has any effect in the hidden 160×200×16 graphics mode. In CGA mode 4, this bit selects between two subsets of palette entries (the "Simone flip" used in PC1-BMP2). This tool checks if the same mechanism works in hidden mode.
+
+**Files:** `flip-hidden-test.asm` / `fliptest.com`
+
+**Usage:**
+```
+fliptest.com
+```
+
+**Controls:**
+| Key | Action |
+|-----|--------|
+| **SPACE** | Toggle port 0xD9 bit 5 (white border flash confirms) |
+| **ESC** | Exit |
+
+**Test Pattern:**
+- 16 vertical color bars, each 10 pixels wide
+- Bars 0–7: warm colors (black, dark red, red, orange, yellow, light yellow, pink, magenta)
+- Bars 8–15: cool colors (dark blue, blue, dark cyan, cyan, dark green, green, light green, white)
+
+**Confirmed Result (February 22, 2026 — real PC1 hardware):**
+- **Outcome A: Bit 5 is completely ignored in hidden 160×200×16 mode.**
+- Toggling bit 5 produced zero change to the 16 color bars.
+- Only the intentional white border flash (keypress confirmation) was visible.
+- The CGA palette select MUX has no effect when the pixel path is 4 bits wide — all 16 palette entries are always active.
+
+**Implication for per-scanline palette:**
+The "Simone flip" double-buffer technique from CGA mode 4 cannot be used in hidden mode. Per-scanline palette updates must write directly to live/visible entries during HBLANK (~76 cycles, enough for 2 entries with zero flicker).
+
+---
+
 ## Building
 
 ```bash
@@ -180,6 +213,7 @@ nasm -f bin hpos.asm -o hpos.com
 nasm -f bin timing.asm -o timing.com
 nasm -f bin cga_scroll_test.asm -o cga_scroll_test.com
 nasm -f bin V6355D_scroll_test.asm -o V6355D_scroll_test.com
+nasm -f bin flip-hidden-test.asm -o fliptest.com
 ```
 
 ## Requirements
