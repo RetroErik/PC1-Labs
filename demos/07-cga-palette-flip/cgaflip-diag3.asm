@@ -1,60 +1,36 @@
 ; ============================================================================
-; CGAFLIP9.ASM — Per-Scanline Full-Palette Gradients via Sequential Streaming
+; CGAFLIP9B.ASM — E6-in-Column-1 Test: Proving Column Order Matters
 ; ============================================================================
 ;
-; Part 8 of 8 (final) — Full E2-E7 update on every scanline. 3 columns × 200 lines.
-;   Modes: 34-step gradients, RGB, all 512 RGB333, and 200-step smooth gradients.
+; WHAT THIS TESTS:
+;   This is a modified cgaflip9 that swaps E6/E7 into column 1 (leftmost)
+;   and E2/E3 into column 3 (rightmost). Everything else is identical.
 ;
-; TECHNIQUE: Per-scanline E2-E7 update via deferred open/close
+;   Because E6 is the 5th register written in the OUTSB burst (cycle ~101),
+;   but the beam reaches column 1 at cycle ~80, there should be a visible
+;   glitch on the left edge: ~21 cycles of STALE color from the previous
+;   frame before E6's new value takes effect.
 ;
-;   Uses cgaflip7's proven deferred open/close pattern, extended to write
-;   all 6 palette entries (E2-E7) instead of just E2:
+;   Compare with cgaflip9.asm (E2 in column 1) to see the difference.
 ;
-;   Even lines (13 OUTs, ~119 cycles):
-;     Flip + OUTSB x12  (palette already opened by previous odd line)
-;     Current entries (E2/E4/E6) = this even line's colors
-;     Upcoming entries (E3/E5/E7) = next odd line's colors
+; CHANGES FROM CGAFLIP9:
+;   1. fill_screen: Column 1 = 0xFF (E6/E7), Column 3 = 0x55 (E2/E3)
+;   2. build_outsb_buffer: E2/E3 use col3 gradient, E6/E7 use col1 gradient
+;   3. Comments updated to reflect swapped layout
 ;
-;   Odd lines (3 OUTs, ~37 cycles):
-;     Flip + Close + Open  (reset write pointer to E2 for next even)
+; EXPECTED RESULT:
+;   Left column (E6): flickering/stale color on left edge (~21 cycles)
+;   Middle column (E4): clean (written by cycle ~65, beam arrives ~200)
+;   Right column (E2): clean (written by cycle ~29, beam arrives ~320)
 ;
-;   Pre-computed OUTSB buffer (100 x 12 = 1200 bytes, even lines only):
-;     Each entry: E2_R, E2_GB, E3_R, E3_GB, E4_R, E4_GB,
-;                 E5_R, E5_GB, E6_R, E6_GB, E7_R, E7_GB
-;
-;   Writing to active entries with updated values is safe on the V6355D
-;   (proven by cgaflip-diag2). Upcoming entries receive next line's colors.
-;
-;   No VRAM rotation needed — simple static 3-column pixel pattern.
-;   Every line gets 3 unique gradient colors. 200 lines x 3 columns.
-;
-; COLUMN ORDER CONSTRAINT:
-;   The OUTSB burst writes registers sequentially: E2→E3→E4→E5→E6→E7.
-;   E6 finishes at ~cycle 101, but the visible area starts at ~cycle 80.
-;   E6 must be placed in column 3 (rightmost) where the beam doesn't
-;   arrive until ~cycle 320 — giving a safe margin of ~219 cycles.
-;   If E6 were placed in column 1, ~100 pixels would show stale colors
-;   from the previous line before the new value latches.
-;   (Proven by cgaflip-diag3: E6 in column 1 → visible artifacts.)
-;
-;   However, the constraint ONLY applies to "current" entries (E2/E4/E6)
-;   that are written AND displayed on the same even scanline. "Upcoming"
-;   entries (E3/E5/E7) are written here but displayed on the next odd line —
-;   a full scanline later — so they are safe in any column position.
-;   (Proven by cgaflip-diag4: E7 dynamic in column 1 → no artifact.)
-;
-; SCREEN LAYOUT (column order is load-bearing — do not rearrange):
-;   Col1 (108px, pix1=0x55): E2 on pal0, E3 on pal1  ← written first
+; SCREEN LAYOUT (swapped vs cgaflip9):
+;   Col1 (108px, pix3=0xFF): E6 on pal0, E7 on pal1  ← LATE WRITE
 ;   Col2 (104px, pix2=0xAA): E4 on pal0, E5 on pal1
-;   Col3 (108px, pix3=0xFF): E6 on pal0, E7 on pal1  ← written last
+;   Col3 (108px, pix1=0x55): E2 on pal0, E3 on pal1
 ;
 ; CONTROLS:
 ;   ESC   : Exit to DOS
-;   SPACE : Cycle gradient mode:
-;             Mode 0: Sunset / Rainbow / Cubehelix (34 steps)
-;             Mode 1: Red / Green / Blue (34 steps)
-;             Mode 2: All 512 RGB333 colors (luminance sorted)
-;             Mode 3: Sunset / Rainbow / Cubehelix (200 steps)
+;   SPACE : Cycle gradient mode (same as cgaflip9)
 ;
 ; Target: Olivetti Prodest PC1 with Yamaha V6355D
 ; CPU: NEC V40 (80186 compatible) @ 8 MHz
@@ -108,7 +84,7 @@ main:
     push cs
     pop es
 
-    ; Fill VRAM with 3-column pattern (no rotation)
+    ; Fill VRAM with SWAPPED 3-column pattern (E6 in column 1)
     call fill_screen
 
     ; Default: Mode 0 (Sunset / Rainbow / Cubehelix)
@@ -136,7 +112,7 @@ main:
     cmp al, 0x20            ; Space
     jne .main_loop
 
-    ; Cycle gradient mode: 0 -> 1 -> 2 -> 0
+    ; Cycle gradient mode: 0 -> 1 -> 2 -> 3 -> 0
     inc byte [current_mode]
     cmp byte [current_mode], NUM_MODES
     jb .mode_ok
@@ -215,11 +191,6 @@ wait_vblank:
 ; ============================================================================
 ; program_palette — Set entries E2-E7 during VBLANK (proven pattern)
 ; ============================================================================
-; Opens at 0x44 (entry 2), writes 12 bytes from outsb_buffer:
-;   E2, E3, E4, E5, E6, E7
-; Uses jmp $+2 as I/O delay (init path, not time-critical)
-; Identical structure to cgaflip7's program_palette.
-; ============================================================================
 
 program_palette:
     cli
@@ -249,10 +220,11 @@ program_palette:
     ret
 
 ; ============================================================================
-; fill_screen — VRAM with 3-column pattern (NO rotation)
+; fill_screen — VRAM with SWAPPED 3-column pattern
 ; ============================================================================
-; Both banks: 100 rows of [27x0x55, 26x0xAA, 27x0xFF]
-;   pix1(0x55) -> E2/E3    pix2(0xAA) -> E4/E5    pix3(0xFF) -> E6/E7
+; SWAPPED vs cgaflip9: Column 1 = 0xFF (E6/E7), Column 3 = 0x55 (E2/E3)
+; Both banks: 100 rows of [27x0xFF, 26x0xAA, 27x0x55]
+;   pix3(0xFF) -> E6/E7    pix2(0xAA) -> E4/E5    pix1(0x55) -> E2/E3
 ; ============================================================================
 
 fill_screen:
@@ -277,13 +249,13 @@ fill_screen:
 .fill_bank:
 .row:
     push cx
-    mov al, 0x55            ; pixel 1 -> E2/E3
+    mov al, 0xFF            ; pixel 3 -> E6/E7 (LEFT column — LATE WRITE)
     mov cx, 27
     rep stosb
-    mov al, 0xAA            ; pixel 2 -> E4/E5
+    mov al, 0xAA            ; pixel 2 -> E4/E5 (middle)
     mov cx, 26
     rep stosb
-    mov al, 0xFF            ; pixel 3 -> E6/E7
+    mov al, 0x55            ; pixel 1 -> E2/E3 (RIGHT column — safe)
     mov cx, 27
     rep stosb
     pop cx
@@ -294,17 +266,18 @@ fill_screen:
 ; build_outsb_buffer — Precompute 100 x 12 byte OUTSB buffer (even lines only)
 ; ============================================================================
 ;
-; For each even line pair (n = 0..99, screen lines 2n and 2n+1):
-;   step_even = (2n) * 33 / 199       <- this even line's gradient step
-;   step_odd  = (2n+1) * 33 / 199     <- next odd line's gradient step
+; SWAPPED vs cgaflip9:
+;   E2/E3 now drive column 3 (rightmost) → use col3_ptr
+;   E4/E5 still drive column 2 (middle)   → use col2_ptr (unchanged)
+;   E6/E7 now drive column 1 (leftmost)  → use col1_ptr
 ;
-; Buffer entry n (12 bytes):
-;   E2_R, E2_GB = col1[step_even]   (current — this even line's color)
-;   E3_R, E3_GB = col1[step_odd]    (upcoming — next odd line's color)
-;   E4_R, E4_GB = col2[step_even]   (current)
-;   E5_R, E5_GB = col2[step_odd]    (upcoming)
-;   E6_R, E6_GB = col3[step_even]   (current — written last, must be rightmost col)
-;   E7_R, E7_GB = col3[step_odd]    (upcoming)
+; Buffer entry n (12 bytes, same register order — hardware constraint):
+;   E2_R, E2_GB = col3[step_even]   (was col1 — now rightmost column)
+;   E3_R, E3_GB = col3[step_odd]
+;   E4_R, E4_GB = col2[step_even]   (unchanged — middle)
+;   E5_R, E5_GB = col2[step_odd]
+;   E6_R, E6_GB = col1[step_even]   (was col3 — now leftmost column!)
+;   E7_R, E7_GB = col1[step_odd]
 ;
 ; ============================================================================
 
@@ -345,17 +318,18 @@ build_outsb_buffer:
     mov [off_odd], ax
 
     ; --- Write 12 bytes: [E2even, E3odd, E4even, E5odd, E6even, E7odd] ---
+    ; SWAPPED: E2/E3 = col3 (rightmost), E6/E7 = col1 (leftmost)
 
-    ; Column 1: E2 (even) + E3 (odd)
-    mov bx, [col1_ptr]
+    ; E2/E3: Column 3 (rightmost — safe, written first at cycle ~20-47)
+    mov bx, [col3_ptr]
     mov si, [off_even]
-    mov ax, [bx+si]         ; col1 @ step_even
+    mov ax, [bx+si]         ; col3 @ step_even
     stosw                   ; E2: R, GB
     mov si, [off_odd]
-    mov ax, [bx+si]         ; col1 @ step_odd
+    mov ax, [bx+si]         ; col3 @ step_odd
     stosw                   ; E3: R, GB
 
-    ; Column 2: E4 (even) + E5 (odd)
+    ; E4/E5: Column 2 (middle — unchanged)
     mov bx, [col2_ptr]
     mov si, [off_even]
     mov ax, [bx+si]
@@ -364,8 +338,8 @@ build_outsb_buffer:
     mov ax, [bx+si]
     stosw                   ; E5: R, GB
 
-    ; Column 3: E6 (even) + E7 (odd)
-    mov bx, [col3_ptr]
+    ; E6/E7: Column 1 (leftmost — LATE! E6 written at cycle ~101)
+    mov bx, [col1_ptr]
     mov si, [off_even]
     mov ax, [bx+si]
     stosw                   ; E6: R, GB
@@ -384,31 +358,19 @@ build_outsb_buffer:
 ; render_frame — HSYNC-synced per-scanline palette streaming
 ; ============================================================================
 ;
-; Uses cgaflip7's proven deferred open/close pattern:
+; IDENTICAL to cgaflip9 — the register write order is a hardware constraint.
+; E2 is always written first, E6 always 5th. The glitch comes from E6 now
+; being in column 1 where the beam arrives 21 cycles BEFORE E6 is written.
 ;
 ; Even lines (13 OUTs, ~119 cycles):
 ;   Flip + OUTSB x12  (palette already opened at E2 by previous odd line)
-;   Current entries (E2/E4/E6) = this even line's colors
-;   Upcoming entries (E3/E5/E7) = next odd line's colors
-;   ~39 cycles spill into visible area — safe because of column order:
-;     E2 done by cycle ~29 (HBLANK) → col1, beam arrives ~cycle 80
-;     E4 done by cycle ~65 (HBLANK) → col2, beam arrives ~cycle 200
-;     E6 done by cycle ~101 (visible) → col3, beam arrives ~cycle 320
-;   Column order is critical: E6 MUST be in the rightmost column.
-;   (cgaflip-diag3 proves E6 in col1 causes ~100px of stale color.)
-;   Note: upcoming entries (E3/E5/E7) are safe in any column — they're
-;   displayed on the next odd line, a full scanline after being written.
-;   (cgaflip-diag4 proves E7 dynamic in col1 causes no artifact.)
+;   E2 done by cycle ~29, E4 by ~65, E6 by ~101
+;   Beam reaches column 1 at cycle ~80 — but E6 isn't updated until ~101!
+;   ← EXPECTED GLITCH: ~21 cycles of stale E6 color on left edge
 ;
 ; Odd lines (3 OUTs, ~37 cycles):
-;   Flip + Close + Open at E2  (all in HBLANK, same as cgaflip7)
+;   Flip + Close + Open at E2  (all in HBLANK)
 ;
-; Even/odd decision is made BEFORE HSYNC wait = branch-free critical path
-;
-; Pre-seed: writes line 0's E2-E7 during VBLANK
-; Pre-open: palette write opened at E2 before loop for first even line
-;
-; Reads outsb_buffer: 100 entries x 12 bytes, consumed by OUTSB on even lines
 ; ============================================================================
 
 render_frame:
@@ -420,7 +382,6 @@ render_frame:
     mov bl, PAL_EVEN            ; start with palette 0
 
     ; Pre-seed E2-E7 with first entry (still in VBLANK, timing free)
-    ; Prevents stale E2-E7 from last frame showing on first line
     mov al, OPEN_E2
     out PORT_DD, al
     jmp short $+2
@@ -446,7 +407,6 @@ render_frame:
 
     ; ------------------------------------------------------------------
     ; HSYNC-synced render loop — 200 scanlines
-    ; Even/odd branch chosen BEFORE HSYNC wait (zero-branch critical path)
     ; ------------------------------------------------------------------
 
 .next_line:
@@ -476,12 +436,12 @@ render_frame:
     outsb                       ; E4 GB                        ~65
     outsb                       ; E5 R                         ~74
     outsb                       ; E5 GB  <- ~HBLANK boundary   ~83
-    outsb                       ; E6 R   (visible, but beam    ~92
-    outsb                       ; E6 GB   is still in col1)    ~101
+    outsb                       ; E6 R                         ~92
+    outsb                       ; E6 GB  <- LATE for col 1!    ~101
     outsb                       ; E7 R                         ~110
     outsb                       ; E7 GB                        ~119
     ; --- End critical ---
-    ; E6 is in col3 (rightmost) — beam doesn't reach it until ~cycle 320
+    ; E6 finished at ~101 but beam hit column 1 at ~80 = GLITCH ZONE
 
     xor bl, PAL_ODD             ; toggle for next line
     loop .next_line
@@ -775,6 +735,8 @@ off_odd:        dw 0
 ; ============================================================================
 ; Format per entry: E2_R, E2_GB, E3_R, E3_GB, E4_R, E4_GB,
 ;                   E5_R, E5_GB, E6_R, E6_GB, E7_R, E7_GB
+;
+; NOTE: E2/E3 = col3 gradient (right column), E6/E7 = col1 gradient (left)
 ; ============================================================================
 
 outsb_buffer:

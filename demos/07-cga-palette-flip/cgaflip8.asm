@@ -3,7 +3,7 @@
 ; ============================================================================
 ;
 ; Part 7 of 8 — E2+E3 dual gradient per column. Smoother than cgaflip7's E2-only.
-;   Next: cgaflip9 extends to full E2-E7 passthrough (all 6 entries per scanline).
+;   Next: cgaflip9 extends to full E2-E7 streaming (all 6 entries per scanline).
 ;
 ; TECHNIQUE: Per-scanline E2+E3 update + CGA palette flip + VRAM rotation
 ;

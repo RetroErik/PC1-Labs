@@ -26,7 +26,7 @@ The demos build on each other in sequence, each discovering or proving something
 ```
 cgaflip2 → cgaflip3 → cgaflip4 (fail) → cgaflip5 (proof) → cgaflip6 → cgaflip7 → cgaflip8 → cgaflip9
                                                                          ↑
-                                                          cgaflip-diag + cgaflip-diag2 (diagnostics)
+                                                          cgaflip-diag + cgaflip-diag2 + cgaflip-diag3 + cgaflip-diag4
 ```
 
 | Step | File | Colors | Technique |
@@ -38,7 +38,7 @@ cgaflip2 → cgaflip3 → cgaflip4 (fail) → cgaflip5 (proof) → cgaflip6 → 
 | 5/8 | cgaflip6 | 7+ | Row-dithered VRAM → "virtual colors". No streaming. |
 | 6/8 | cgaflip7 | 85 | 3 columns × E2 via VRAM rotation. Deferred open/close. |
 | 7/8 | cgaflip8 | 85+ | E2+E3 dual gradient. Smoother blending. |
-| 8/8 | cgaflip9 | **512** | Full E2-E7 passthrough. 3 × 200 lines. **Final.** |
+| 8/8 | cgaflip9 | **512** | Full E2-E7 streaming. 3 × 200 lines. **Final.** |
 
 ## Files — Assembly Demos
 
@@ -51,14 +51,16 @@ cgaflip2 → cgaflip3 → cgaflip4 (fail) → cgaflip5 (proof) → cgaflip6 → 
 | `cgaflip6.asm` | **Part 5/8: "Sunset Gradient" showcase.** Row-dithered VRAM + palette flip = 7+ perceived "virtual colors" from 4 CGA pixel values. No per-scanline palette streaming — all entries set once during VBLANK. Demonstrates temporal color blending. |
 | `cgaflip7.asm` | **Part 6/8: Three-column gradients via VRAM rotation.** Per-scanline E2 update with deferred open/close (3 OUTs per even HBLANK). VRAM pixel pattern rotates every 2 rows so each column gets E2 every 6 lines. ~33 gradient steps per column. Two modes: Sunset/Rainbow/Cubehelix and Red/Green/Blue. Up to 85 unique colors on screen. |
 | `cgaflip8.asm` | **Part 7/8: E2+E3 dual gradient.** Streams 4 bytes (E2 R, E2 GB, E3 R, E3 GB) per even HBLANK. E3 fills the odd-line gap for smoother blending. 5 OUTs even, 3 OUTs odd. Built on cgaflip-diag's finding that inactive-entry writes are safe. |
-| `cgaflip9.asm` | **Part 8/8: Full E2-E7 passthrough (final).** Writes all 6 entries per even HBLANK via OUTSB×12 (13 OUTs, ~119 cycles). Active entries receive the same value ("passthrough"), inactive entries get next line's colors. No VRAM rotation needed. 3 columns × 200 lines. 4 modes: 34-step Sunset/Rainbow/Cubehelix, RGB, all 512 RGB333, and 200-step smooth gradients. |
+| `cgaflip9.asm` | **Part 8/8: Full E2-E7 streaming (final).** Writes all 6 entries per even HBLANK via OUTSB×12 (13 OUTs, ~119 cycles). Current entries (E2/E4/E6) get this line's colors, upcoming entries (E3/E5/E7) get next line's colors. Column order is load-bearing: E6 (written last) must be in the rightmost column to avoid beam-racing artifacts (proven by cgaflip-diag3). No VRAM rotation needed. 3 columns × 200 lines. 4 modes: 34-step Sunset/Rainbow/Cubehelix, RGB, all 512 RGB333, and 200-step smooth gradients. |
 
 ## Files — Diagnostics
 
 | File | Description |
 |------|-------------|
 | `cgaflip-diag.asm` | **Inactive-entry write test.** Proves that writing to INACTIVE palette entries during the visible area does NOT disrupt the active entries on the V6355D. This finding enabled cgaflip8 (writing E3 during HBLANK) and paved the way for cgaflip9. Toggle test ON/OFF with SPACE to compare. |
-| `cgaflip-diag2.asm` | **Active-entry passthrough test.** Proves that streaming through ACTIVE entries with the SAME value ("passthrough") during the visible area is safe — the V6355D DAC does not glitch. This finding enabled cgaflip9's full E2-E7 streaming without VRAM rotation. |
+| `cgaflip-diag2.asm` | **Active-entry write test.** Proves that writing to active palette entries during the visible area is safe — the V6355D DAC does not glitch. This finding enabled cgaflip9's full E2-E7 streaming without VRAM rotation. |
+| `cgaflip-diag3.asm` | **Column-order constraint test.** Places E6 (last-written register) in column 1 (leftmost). Proves that ~100 pixels of stale color appear on the left edge of every even scanline because E6 finishes writing at ~cycle 101 but the beam reaches column 1 at ~cycle 80. Demonstrates that column order is load-bearing: the last-written register must be in the rightmost column. |
+| `cgaflip-diag4.asm` | **Static E6 + dynamic E7 in column 1 test.** E6 is fixed (static mid-gray) in column 1 — no artifact (stale = new). E7 is dynamic in column 1 — also no artifact. Proves that the column-order constraint only applies to "current" entries (E2/E4/E6) that are written AND displayed on the same even scanline. "Upcoming" entries (E3/E5/E7) are written during even HBLANK but displayed on the next odd line — always safe regardless of column position. |
 
 ## Files — Intermediate / Experimental
 
@@ -107,8 +109,10 @@ All findings verified on real PC1 hardware (February 2026):
 5. **Palette flip (0xD9 only) is perfectly stable** — zero flicker (cgaflip5).
 6. **Visible-area palette streaming causes blinking** — the write protocol disrupts V6355D output (cgaflip4, cgaflip5).
 7. **Inactive-entry writes during visible area are safe** — no disruption to active entries (cgaflip-diag).
-8. **Active-entry passthrough is safe** — writing the same value to active entries causes no glitching (cgaflip-diag2).
+8. **Active-entry writes during visible area are safe** — writing updated values to active entries causes no glitching (cgaflip-diag2).
 9. **Deferred open/close** — opening the palette write session on odd HBLANK lines and consuming it on even lines allows 12+ bytes via OUTSB with only 3 OUTs on the critical even path (cgaflip7).
+10. **Column order is load-bearing** — the OUTSB burst writes E2→E4→E6 sequentially. E6 finishes at ~cycle 101 (past HBLANK). If E6 is placed in the leftmost column, ~100 pixels show stale colors before the new value latches. E6 must be in the rightmost column where the beam arrives at ~cycle 320 (cgaflip-diag3).
+11. **Column-order constraint only applies to "current" entries** — E2/E4/E6 are written and displayed on the same even scanline, so they are affected by beam-racing. "Upcoming" entries (E3/E5/E7) are written during even HBLANK but displayed on the next odd line (a full scanline later) — they are safe in any column position. E7 dynamic in column 1 shows no artifact (cgaflip-diag4).
 
 ## Build
 
@@ -125,6 +129,8 @@ nasm -f bin -o cgaflip8.com cgaflip8.asm
 nasm -f bin -o cgaflip9.com cgaflip9.asm
 nasm -f bin -o cgaflip-diag.com cgaflip-diag.asm
 nasm -f bin -o cgaflip-diag2.com cgaflip-diag2.asm
+nasm -f bin -o cgaflip-diag3.com cgaflip-diag3.asm
+nasm -f bin -o cgaflip-diag4.com cgaflip-diag4.asm
 ```
 
 ## Controls
