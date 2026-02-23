@@ -93,6 +93,100 @@ cga_scroll_test.com
 
 ---
 
+### crtc_restarts_test.asm — CRTC Restarts Test (R4/R6 Vertical Timing)
+
+Tests whether Reenigne's "CRTC Restarts" technique (from 8088 MPH) works on the V6355D. The technique requires mid-frame R4 (Vertical Total) changes to create 100 tiny 2-scanline "micro-frames," each with its own R12/R13 start address. If it worked, this would solve the 384-byte gap problem for hardware scrolling.
+
+**Files:** `crtc_restarts_test.asm` / `crtctest.com` (966 lines)
+
+**Usage:**
+```
+crtctest.com
+```
+
+**Controls:**
+| Key | Action |
+|-----|--------|
+| **1** | Test A: Static R4 reduction (R4=0x01, R6=0x01). Blue border confirms. |
+| **2** | Test B: Full restarts loop (100 micro-frames). Green border confirms. |
+| **3** | Test C: Restarts + animated scroll. Red border confirms. |
+| **R** | Reset CRTC to normal values |
+| **ESC** | Exit to DOS |
+
+**Hardware Test Results (2026 — real Olivetti Prodest PC1):**
+
+| Test | Expected | Actual | Conclusion |
+|------|----------|--------|------------|
+| A — R4=0x01 | Display shrinks to ~2-4 scanlines | Full 200-line display unchanged | **R4 is DUMMY** |
+| B — Restarts loop | Correct bands via micro-frames | Full display unchanged | **No micro-frames created** |
+| C — Scroll test | Smooth scroll without gap | Tearing visible (R12/R13 works, R4 ignored) | **R4 is DUMMY, R12/R13 works** |
+| R — Reset | Return to normal | No visible change (expected) | R4 was never modified |
+
+**Key Findings:**
+- **R4 (Vertical Total) and R6 (Vertical Displayed) are DUMMY registers** on the V6355D — writing to them has zero effect. The V6355D hardcodes vertical timing in silicon.
+- **Word writes (`out dx, ax`) to port 0x3D4 DO work** on the V6355D — Test C proved this by showing R12/R13 updates taking effect via word writes.
+- **CRTC Restarts are impossible** on the V6355D. This technique requires a real MC6845 where R4 controls frame height.
+- R4/R6 join R8 (Interlace Mode), R16 (Interlace Offset), and Skew registers in the confirmed dummy register list.
+
+**Implication:** The 384-byte gap problem for circular buffer scrolling **cannot be solved** via CRTC Restarts. Software viewport copying (demo7b approach) remains the only reliable method for scrolling tall images.
+
+---
+
+### reg65_test.asm — Register 0x65 Mid-Frame Vertical Lines Test
+
+Tests whether V6355D Register 0x65 (Monitor Control) bits 0-1 can be changed mid-frame. These bits control vertical line count: 00=192, 01=200 (default), 10=204, 11=reserved. If mid-frame changes take effect, this could enable vertical split-screen effects or other display tricks.
+
+**Files:** `reg65_test.asm` / `reg65tst.com`
+
+**Usage:**
+```
+reg65tst.com
+```
+
+**Controls:**
+| Key | Action |
+|-----|--------|
+| **1** | Test A: Cycle static line count (192→200→204→reserved). Border: Blue/Green/Red/Magenta. |
+| **2** | Test B: Mid-frame split — 200 lines (top) → 192 lines (bottom at scanline 100). Cyan border. |
+| **3** | Test C: Mid-frame split — 200 lines (top) → 204 lines (bottom at scanline 100). Yellow border. |
+| **4** | Test D: Per-frame toggle — alternates 192/204 every frame. Blue/Red border flashes. |
+| **R** | Reset register 0x65 to default (200 lines, PAL, CRT) |
+| **ESC** | Exit to DOS |
+
+**Visual Markers:**
+The test pattern includes marker lines at key boundaries:
+- Lines 190-191: **Bright white** — marks the 192-line boundary
+- Lines 198-199: **Bright red** — marks the 200-line boundary
+- Lines 202-203: **Bright cyan** — marks the 204-line boundary
+
+**What to look for:**
+- **Test A**: Does the display visibly grow or shrink when cycling modes? The white/red/cyan markers should appear or disappear at the edges.
+- **Test B**: If the bottom portion cuts off mid-frame, register 0x65 responds to mid-frame changes.
+- **Test C**: If extra lines appear at the bottom, mid-frame extension works.
+- **Test D**: Flickering between modes means the register is latched per-frame.
+
+**Hardware Test Results (February 23, 2026):**
+
+All four tests produce correct results with proper palette colors:
+
+| Test | Description | Result |
+|------|-------------|--------|
+| **A** | Static line count cycling (192→200→204→reserved) | ✅ All modes work. Display visibly grows/shrinks. Border color changes confirm mode. |
+| **B** | Mid-frame split: 200→192 at scanline 100 | ✅ Bottom lines cut off. Light blue border. |
+| **C** | Mid-frame split: 200→204 at scanline 100 | ✅ Extra lines appear at bottom. Orange border. |
+| **D** | Per-frame toggle (192↔204) | ✅ Bottom lines alternate each frame (visible flicker). Red/purple border alternates. |
+
+**Key Discovery — Palette Corruption:**
+Writing register index 0x65 to port 0x3DD corrupts the palette because bit 6 of 0x65 overlaps the palette command range (0x40-0x4F). The fix:
+1. Close the palette session by writing 0x80 to port 0x3DD after each register write
+2. Restore the palette programmatically after runtime register writes
+
+Proven working code (colorbar.asm, PC1-BMP.asm) avoids this by writing register 0x65 *before* palette setup.
+
+**Conclusion:** Register 0x65 responds to both static and mid-frame changes, but controls only vertical line count — it does **not** affect CRTC addressing. It cannot solve the 384-byte gap problem for hardware scrolling. In 192-line mode, the gap increases from 192 to 512 bytes, giving 6 smooth scroll steps vs 2, but the fundamental wrap issue remains.
+
+---
+
 ### V6355D_scroll_test.asm — Register 0x64 Vertical Adjust Test
 
 Tests V6355D-specific Register 0x64 (bits 3-5) for vertical display adjustment. This is a V6355D-native register, not a CGA-compatible one.
@@ -214,6 +308,8 @@ nasm -f bin timing.asm -o timing.com
 nasm -f bin cga_scroll_test.asm -o cga_scroll_test.com
 nasm -f bin V6355D_scroll_test.asm -o V6355D_scroll_test.com
 nasm -f bin flip-hidden-test.asm -o fliptest.com
+nasm -f bin crtc_restarts_test.asm -o crtctest.com
+nasm -f bin reg65_test.asm -o reg65tst.com
 ```
 
 ## Requirements
