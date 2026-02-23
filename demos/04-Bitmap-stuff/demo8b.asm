@@ -4,6 +4,16 @@
 ; Written for NASM - NEC V40 @ 8 MHz (80186 instruction set)
 ; By RetroErik - 2026
 ;
+; STATUS: SUPERSEDED by demo8c.asm (true circular buffer, zero reloads)
+;
+; This version has THREE bugs that cause stuttering:
+;   1. CRTC R6 is a dummy register on V6355D — writing R6=98 does nothing
+;   2. scroll_down wrote new rows at wrong VRAM offset (before display start)
+;   3. Periodic 15KB reload_viewport every 3-6 scrolls causes multi-frame stutter
+;
+; demo8c fixes all three: register 0x65 = 0x08 for genuine 192-line mode,
+; correct write destination with 8K-boundary split copy, and zero reloads.
+;
 ; ============================================================================
 ; CIRCULAR BUFFER TECHNIQUE - 100x FASTER THAN DEMO7!
 ; ============================================================================
@@ -61,6 +71,7 @@
 ;   - Cannot scroll by 1 row (would desync the banks)
 ;   - Cannot smoothly scroll backwards after forward (must reset or track)
 ;   - Current implementation: simple bidirectional scrolling
+;   - Still stutters on hardware (see demo8c for fix)
 ;
 ; ============================================================================
 

@@ -1,4 +1,4 @@
-s: Top part of imabe is showing on the buttom and skifted 60 pixels to the right
+s: Top part of image is showing on the buttom and skifted 60 pixels to the right
 h: The right part that shifts in has two black lines at bottom
 t: when pressing T the image jumps two pixels up then scrolle to the right. When it comes back on left side it is as it should be
 B: Basically the same, the right Version of the image shift two line up and we get black lines

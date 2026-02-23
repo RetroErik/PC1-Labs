@@ -18,7 +18,7 @@ This folder traces the evolution from "display a BMP with raster bars" all the w
 3. **Partial-screen panning** (demo6) — Only update part of the screen for speed
 4. **Hardware scrolling** (demo7a) — Use CRTC R12/R13 to scroll without copying pixels
 5. **Software viewport scrolling** (demo7b) — Scroll tall images (>200 rows) via RAM→VRAM copy
-6. **Circular buffer scrolling** (demo8a–demo8b) — Copy only 160 bytes/frame instead of 16KB
+6. **Circular buffer scrolling** (demo8a–demo8c) — Copy only 160 bytes/frame instead of 16KB
 7. **R12/R13 effects** (demo9) — Screen shake, wave, bounce, marquee via Start Address
 
 ## Files
@@ -133,19 +133,32 @@ This folder traces the evolution from "display a BMP with raster bars" all the w
 - Kept as reference for the circular buffer concept
 - **968 lines** | UP/DOWN/<,> = scroll, SPACE = auto, V = VSync, R = reset, ESC/Q = exit
 
-#### `demo8b.asm` — Circular Buffer with Reduced Display (196 Row Workaround)
+#### `demo8b.asm` — Circular Buffer with Reduced Display (196 Row Workaround) — SUPERSEDED
 **Technique:** Reduce display to 196 rows to create more gap headroom, then periodic full reload
 - 196 rows = 98 per bank × 80 = 7840 bytes → 352 bytes headroom (vs 192)
 - 4 fast scrolls (160 bytes each) before gap is reached → 1 full 15,680-byte reload
 - Average: ~3,200 bytes/scroll — about 5× faster than demo7b's 16KB/frame
-- Still has periodic stutter on the reload frame
+- **Three bugs cause stuttering:** R6 is dummy, wrong write destination, 15KB reload stutter
+- **Superseded by demo8c** which fixes all three issues
 - **1095 lines** | UP/DOWN/<,> = scroll, SPACE = auto, V = VSync, R = reset, ESC/Q = exit
+
+#### `demo8c.asm` — True Circular Buffer with Register 0x65 (192 Lines) — **FINAL**
+**Technique:** Register 0x65 = 0x08 for genuine 192-line mode + true circular buffer with CRTC MA wrapping
+- 192 lines = 96 rows/bank × 80 = 7680 bytes → **512 bytes gap** per bank
+- CRTC MA counter wraps naturally at 8K bank boundary (standard 6845/CGA behavior)
+- Every scroll writes exactly 160 bytes — no reloads, no exceptions, no stuttering
+- New rows written at (crtc_start + 7680) & 0x1FFF with 8K boundary split copy
+- Word-wide CRTC writes (`out dx, ax`) for atomic R12/R13 updates during VBlank
+- Palette session close (0x80 → 0x3DD) after register 0x65 write to prevent DAC corruption
+- **Hardware confirmed: perfectly smooth scrolling on real PC1**
+- **~96× faster than demo7b** (160 bytes vs 15,360 bytes per scroll)
+- **1077 lines** | UP/DOWN/<,> = scroll, SPACE = auto, V = VSync, R = reset, ESC/Q = exit
 
 ---
 
 ### R12/R13 Effects Showcase
 
-#### `demo9.asm` — CRTC Start Address Effects Demo
+#### `demo9.asm` — CRTC Start Address Effects Demo (SUPERSEDED by demo9b)
 **Technique:** All visual effects via R12/R13 register manipulation only — no pixel copying at all
 - **Screen shake** — Random R12/R13 offsets for earthquake/explosion effect (intensity 1–9)
 - **Horizontal wave** — Sinusoidal horizontal wobble
@@ -154,7 +167,23 @@ This folder traces the evolution from "display a BMP with raster bars" all the w
 - **Marquee** — Ping-pong horizontal scroll
 - All effects are essentially free (single register write per frame)
 - Limited to small offsets (~5 rows) before the 384-byte gap causes artifacts
+- **Three bugs:** (1) missing CRTC word addressing (`shr ax,1`), (2) non-row-aligned offsets cause mid-scanline seam, (3) gap artifacts at 200 lines
+- **Superseded by demo9b** which fixes all three bugs
 - **1089 lines** | S/H/T/B/M = effects, 1–9 = shake intensity, V = VSync, R = reset, ESC = exit
+
+#### `demo9b.asm` — Vertical R12/R13 Effects with Tall Image Support — **FINAL**
+**Technique:** All effects converted to row-aligned vertical movement + 192-line mode + gap patching + RAM buffer for tall images
+- All five effects rewritten as **vertical** (row-aligned) — eliminates the CGA mid-scanline seam
+- **CRTC word addressing fix:** divides byte offset by 2 (`shr ax,1`) before writing R12/R13 (MC6845 counts in words, not bytes)
+- **192-line mode** (register 0x65 = 0x08) gives 512-byte gap per bank — 6 rows of headroom for effects
+- **Gap patching:** copies first 512 bytes of each bank into its gap area for seamless circular wrap during effects
+- **Tall image support (up to 160×800):** shrinks PSP, allocates RAM buffer via DOS, decodes full BMP to interlaced RAM, copies 192-row viewport to VRAM
+- **Navigation keys:** UP/DOWN (2-row steps), PgUp/PgDn (96-row half-screen), Home/End (top/bottom)
+- Effects operate on current VRAM viewport; viewport changes stop effects and do full refresh
+- Word-wide CRTC writes (`out dx, ax`) for atomic R12/R13 updates
+- Uses `[CPU 186]` for `pusha`/`popa` and immediate-count shifts (NEC V40 is 80186-compatible)
+- **Hardware confirmed: all effects clean on real PC1, no seam, no gap artifacts**
+- **~1380 lines** | S/H/T/B/M = effects, 1–6 = shake intensity, UP/DOWN/PgUp/PgDn/Home/End = navigate, V = VSync, R = reset, ESC = exit
 
 ## BMP Files
 
@@ -163,7 +192,8 @@ This folder traces the evolution from "display a BMP with raster bars" all the w
 | `bands.bmp` | Horizontal color bands test pattern |
 | `vstripe.bmp` | Vertical stripe test pattern |
 
-All demos expect 160×200 or 320×200, 4-bit (16 color) BMP files as input.
+Most demos expect 160×200 or 320×200, 4-bit (16 color) BMP files as input.
+demo9b also supports tall images up to 160×800 or 320×800.
 
 ## Compilation
 
@@ -180,7 +210,9 @@ nasm -f bin -o demo7a.com demo7a.asm
 nasm -f bin -o demo7b.com demo7b.asm
 nasm -f bin -o demo8a.com demo8a.asm
 nasm -f bin -o demo8b.com demo8b.asm
+nasm -f bin -o demo8c.com demo8c.asm
 nasm -f bin -o demo9.com demo9.asm
+nasm -f bin -o DEMO9B.COM demo9b.asm
 ```
 
 ## Running
@@ -193,14 +225,16 @@ A:\demo1.com bands.bmp
 
 All demos that load images take the BMP filename as a command-line argument.
 
-## The 384-Byte Gap Problem
+## The 384-Byte Gap Problem (Solved in demo8c)
 
 A recurring theme in demo7a, demo8a, and demo8b. CGA interlaced mode uses two 8KB banks:
 - Each bank: 8192 bytes physical, but only 8000 bytes used (100 rows × 80 bytes)
 - **192-byte gap** at the end of each bank (offsets 0x1F40–0x1FFF and 0x3F40–0x3FFF)
 - Total waste: 384 bytes across both banks
 
-This gap is invisible during normal display but breaks any technique that shifts R12/R13 away from zero, because the CRTC reads linearly through the gap as if it were valid image data. Demo8b's "reduce to 196 rows" workaround buys headroom but doesn't fully solve it - a periodic full reload is still needed.
+This gap is invisible during normal display but breaks any technique that shifts R12/R13 away from zero, because the CRTC reads linearly through the gap as if it were valid image data.
+
+**Demo8c's solution:** Use register 0x65 = 0x08 for genuine 192-line mode (96 rows/bank = 7680 bytes). This increases the gap to **512 bytes** per bank — enough for the CRTC MA counter to wrap naturally at 8K without ever reading uninitialized gap data. New rows are always written into the gap area ahead of the display, and crtc_start advances by 80 with `& 0x1FFF` wrapping. On the rare case where an 80-byte row straddles the 8K boundary (~1 in 102 scrolls), the copy is split into two parts. Result: zero reloads, zero stuttering, constant 160-byte cost per scroll.
 
 See **V6355D-Technical-Reference.md, Section 17f** for the full investigation.
 
@@ -211,8 +245,8 @@ See **V6355D-Technical-Reference.md, Section 17f** for the full investigation.
 3. **demo6** — Partial updates: delta clearing, FPS measurement
 4. **demo7a** — Hardware scrolling: R12/R13 concept and the bank gap problem
 5. **demo7b** — Software scrolling: brute-force 16KB/frame for tall images
-6. **demo8a → demo8b** — Circular buffer: the elegant 160-byte solution and why CGA breaks it
-7. **demo9** — Creative effects: what you CAN do with R12/R13 (small offsets)
+6. **demo8a → demo8c** — Circular buffer: the elegant 160-byte solution, the gap problem, and the final fix via register 0x65 (192-line mode + true CRTC wrapping)
+7. **demo9 → demo9b** — Creative effects: what you CAN do with R12/R13 (vertical offsets, 192-line gap patching, tall image RAM buffer)
 
 ## References
 
@@ -225,4 +259,4 @@ Retro Erik - 2026
 
 ---
 
-**Note:** These demos trace a real engineering journey — from "how do I even display a BMP?" to "can I scroll at 100× less memory bandwidth?" — complete with dead ends (demo3), fundamental hardware limitations (the gap), and creative workarounds (demo8b). The progression mirrors how demo scene coders historically pushed hardware beyond its intended limits.
+**Note:** These demos trace a real engineering journey — from "how do I even display a BMP?" to "can I scroll at 100× less memory bandwidth?" — complete with dead ends (demo3), fundamental hardware limitations (the gap), and creative workarounds (demo8b) leading to the final solution (demo8c). The progression mirrors how demo scene coders historically pushed hardware beyond its intended limits.

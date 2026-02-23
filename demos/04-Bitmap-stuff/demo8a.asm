@@ -55,7 +55,10 @@
 ;   - Those 80 bytes display as garbage (last row on screen)
 ;
 ; This demo is kept as a reference for the circular buffer concept.
-; See demo8.asm for attempted fixes (196-row mode with gap headroom).
+; See demo8b.asm for 196-row workaround, demo8c.asm for the final fix.
+;
+; STATUS: SUPERSEDED by demo8c.asm which uses register 0x65 (192-line mode)
+; to create a 512-byte gap — enough for true circular buffer with zero reloads.
 ;
 ; ============================================================================
 ; CONTROLS
