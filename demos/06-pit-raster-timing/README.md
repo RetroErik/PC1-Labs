@@ -11,8 +11,12 @@ This folder tests using **PIT interrupts** instead of **HSYNC polling** for per-
 | pitras1 | PIT interrupt, 1 color/scanline | ✅ WORKS |
 | pitras2 | PIT interrupt, multi-entry/scanline | ✅ WORKS |
 | pitras3 | PIT interrupt, mid-scanline color split | ✅ WORKS (with jitter) |
+| pitras4 | Cycle-counted loop, no ISR (8088MPH style) | 🧪 EXPERIMENT |
+| pitras5 | HSYNC-synced cycle-counted + deferred palette | 🧪 EXPERIMENT |
 
 **Key Finding:** PIT interrupts provide smoother raster effects than HSYNC polling, especially in the center and right portions of the screen. Mid-scanline palette changes are possible but jitter ~4-8 pixels due to V6355D bus contention.
+
+**Goal of pitras4/5:** Achieve **pixel-precise** mid-scanline color changes by eliminating ISR overhead jitter. Inspired by reenigne's 8088 MPH cycle-counting techniques.
 
 ## Related Work
 
@@ -127,6 +131,59 @@ out 0x40, al
 
 ---
 
+### `pitras4.asm` - Cycle-Counted Mid-Scanline Split (No ISR) 🧪
+
+**Purpose:** Eliminate ISR overhead jitter by replacing PIT interrupts with a
+tight cycle-counted main loop. Inspired by reenigne's 8088 MPH Kefrens bars technique.
+
+**How it works:**
+1. Wait for VBLANK (sync to top of frame)
+2. CLI — interrupts off for entire frame
+3. For each of 200 scanlines:
+   - Wait for HSYNC HIGH (sync to scanline start)
+   - Write BLUE to palette entry 0 (3 OUTs)
+   - Cycle-counted NOP delay → targets specific pixel column
+   - Write RED to palette entry 0 (3 OUTs)
+   - Pad NOPs to fill rest of scanline (~509 CPU cycles total)
+4. STI
+
+**Why this should be better than pitras3:**
+- No ISR push/pop/iret overhead (~40 cycles of jitter eliminated)
+- HSYNC poll jitter affects vertical position uniformly, not the split point
+- Split point is purely determined by cycle count from HSYNC edge
+
+**Controls:**
+- `Left/Right` - Split delay ±1 (fine tune pixel position)
+- `+/-` - Split delay ±10 (coarse)
+- `Up/Down` - Pad ±1 (tune total scanline time)
+- `ESC` - Exit
+
+---
+
+### `pitras5.asm` - HSYNC-Synced + Deferred Palette 🧪
+
+**Purpose:** Same cycle-counted approach as pitras4, but adds a **close/open palette
+protocol** to minimize V6355D disruption during the visible area.
+
+**How it works:**
+Same as pitras4, except Color A is written with a full open-write-close
+cycle during HBLANK (safe), then Color B is written mid-scanline with
+another open-write-close (may cause brief V6355D glitch).
+
+**Test modes** (press M to cycle):
+- **Mode A:** Blue/Red (high contrast for measuring jitter)
+- **Mode B:** Black/White (maximum luminance contrast)
+- **Mode C:** Gradient (different colors per scanline)
+
+**Controls:**
+- `Left/Right` - Split delay ±1
+- `+/-` - Split delay ±10
+- `Up/Down` - Pad ±1
+- `M` - Cycle test modes
+- `ESC` - Exit
+
+---
+
 ## Key Findings Summary
 
 | Finding | Detail |
@@ -134,11 +191,12 @@ out 0x40, al
 | PIT per-scanline timing | ✅ Works reliably at 76 ticks/scanline |
 | Multiple palette entries/scanline | ✅ Up to 8 entries per ISR (pitras2) |
 | Mid-scanline color split | ✅ Proven — two colors visible on same line |
-| Pixel-stable mid-scanline | ❌ Not achievable — V6355D bus contention causes ~4-8px jitter |
+| Pixel-stable mid-scanline (PIT ISR) | ❌ Not achievable — ISR overhead + V6355D bus contention = ~4-8px jitter |
+| Cycle-counted loop (no ISR) | 🧪 pitras4/5 — eliminates ISR jitter, V6355D contention remains |
 | DRAM refresh trick (8088MPH) | ❌ Not applicable — V40 has internal refresh, not PIT CH1-driven |
 | V6355D HSYNC status bit | ❌ Not available — no readable horizontal sync reference |
 
-**Conclusion:** PIT-driven raster effects on the PC1 are excellent for per-scanline color changes (pitras1/2). Mid-scanline splits work visually but cannot achieve pixel-level stability without hardware-level V6355D knowledge. For demo effects, the jitter is acceptable for wide color bands; for fine horizontal precision, a different approach would be needed.
+**Conclusion:** PIT-driven raster effects on the PC1 are excellent for per-scanline color changes (pitras1/2). Mid-scanline splits work visually but cannot achieve pixel-level stability without hardware-level V6355D knowledge. pitras4/5 test whether eliminating ISR overhead via cycle-counting (reenigne's approach) reduces jitter to an acceptable level for pixel-targeted color changes.
 
 ---
 
