@@ -81,8 +81,9 @@ In 320-pixel-wide CGA modes (including the hidden 160×200×16 mode):
 - Pixel clock = 14.31818 / 2 = 7.159 MHz
 - CPU clock = 14.31818 / 2 = 7.159 MHz
 - **1 pixel = exactly 1 CPU cycle**
-- **456 CPU cycles per scanline** (912 pixel clocks / 2)
-- **320 visible pixels = 320 CPU cycles of active display**
+- **912 master clocks per scanline** (14.318 MHz)
+- **456 CPU cycles per scanline** (7.159 MHz = master ÷ 2)
+- **320 visible pixels + 136 blanking pixel-clocks = 456 total**
 
 ### 3. No V6355D Bus Contention on System RAM
 

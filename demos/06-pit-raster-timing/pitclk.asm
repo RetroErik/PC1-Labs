@@ -1,5 +1,5 @@
 ; ============================================================================
-; PITCLK.asm — CPU Frequency Measurement Tool (v3)
+; PITCLK.asm — CPU Frequency Measurement Tool (v4)
 ; ============================================================================
 ;
 ; PURPOSE:
@@ -30,24 +30,14 @@
 ;
 ;   See PC1-CLOCK-DISCOVERY.md for full analysis and clock tree diagram.
 ;
-; METHOD:
-;   Uses PIT channel 0 as reference clock (1,193,182 Hz = 14.31818 / 12).
-;   Runs a calibrated NOP+NOP+DEC+JNZ loop (100 iterations) and measures
-;   PIT tick delta. The CPU/PIT ratio reveals the DCK divider:
-;     Ratio 4.0 → DCK/3 = 4.77 MHz (Normal)
-;     Ratio 6.0 → DCK/2 = 7.16 MHz (Turbo)
-;     Ratio 6.7 → 8.0 MHz (independent — ruled out)
-;
-;   Test 4 runs during VBLANK (no bus contention).
-;   Test 5 runs during active display (measures bus contention impact).
+; DISPLAY:
+;   ANSI colored output, fits on one 80x25 screen.
+;   Colors: Cyan=headers, Yellow=labels, White=measurements,
+;           Green=derived values, Magenta=best match, Grey=reference.
 ;
 ; VERSION HISTORY:
-;   v1 — Ran calibration during active display → V6355D bus stealing
-;        inflated results (41,492 PIT ticks for 10K iters — ~3× too high)
-;   v2 — Moved to VBLANK but used 1000 iterations (4.1 ms) which
-;        overflowed VBLANK duration (1.0 ms) → both tests identical
-;   v3 — Reduced to 100 iterations (~0.4 ms), fits within VBLANK.
-;        Confirmed: DCK/2 in Turbo, DCK/3 in Normal. No bus contention.
+;   v1-v3 — Measurement iterations (see PC1-CLOCK-DISCOVERY.md)
+;   v4 — Compact ANSI color display, fits on one screen (25 lines)
 ;
 ; CONTROLS:
 ;   Press any key to exit.
@@ -64,14 +54,16 @@
 
 ; --- Hardware Ports ---
 PORT_STATUS     equ 0x3DA
-PORT_MODE       equ 0xD8
 PIT_CH0_DATA    equ 0x40
 PIT_CMD         equ 0x43
 
-CAL_ITERS       equ 100         ; Loop iterations (fits in VBLANK)
+CAL_ITERS       equ 100
+
+; --- ANSI shortcuts ---
+ESC             equ 1Bh
 
 ; ============================================================================
-; MAIN
+; MAIN — Run all 5 measurements, then display results
 ; ============================================================================
 main:
     ; CGA graphics mode (for HSYNC/VBLANK status bits)
@@ -125,7 +117,6 @@ main:
     cli
     call latch_pit_ch0
     mov [pit_start], ax
-    ; Wait for VBLANK to end
     mov dx, PORT_STATUS
 .vb_end:
     in al, dx
@@ -139,11 +130,8 @@ main:
     mov [result_vblank], ax
 
     ; ================================================================
-    ; TEST 4: Calibrated loop during VBLANK (KEY TEST — no bus contention)
+    ; TEST 4: Calibrated loop during VBLANK (no bus contention)
     ; ================================================================
-    ; Loop: NOP(1B) + NOP(1B) + DEC CX(1B) + JNZ(2B) = 5 bytes/iter
-    ; At 7.16 MHz with 8-bit bus: ~29 CPU cycles/iter
-    ; 100 iters ≈ 2900 cycles ≈ 483 PIT ticks (fits in VBLANK)
     call pit_ch0_freerun
     call wait_vblank_edge
     cli
@@ -167,13 +155,11 @@ main:
     ; ================================================================
     call pit_ch0_freerun
     call wait_vblank_edge
-    ; Wait for VBLANK to END → entering active display
     mov dx, PORT_STATUS
 .wait_active:
     in al, dx
     test al, 0x08
     jnz .wait_active
-    ; Now in active display — V6355D is fetching VRAM
     cli
     call latch_pit_ch0
     mov [pit_start], ax
@@ -191,6 +177,75 @@ main:
     mov [result_cal_act], ax
 
     ; ================================================================
+    ; Pre-compute derived values
+    ; ================================================================
+
+    ; Scanlines per frame = frame_ticks * 100 / result_100scan
+    mov ax, [result_frame]
+    mov bx, 100
+    mul bx
+    mov bx, [result_100scan]
+    or bx, bx
+    jz .no_spf
+    div bx
+.no_spf:
+    mov [result_spf], ax
+
+    ; VBLANK in scanlines = vblank_ticks * 100 / result_100scan
+    mov ax, [result_vblank]
+    mov bx, 100
+    mul bx
+    mov bx, [result_100scan]
+    or bx, bx
+    jz .no_vbl
+    div bx
+.no_vbl:
+    mov [result_vb_lines], ax
+
+    ; Bus contention % = (cal_act * 100) / cal_vb
+    mov ax, [result_cal_act]
+    mov bx, 100
+    mul bx
+    mov bx, [result_cal_vb]
+    or bx, bx
+    jz .no_bus
+    div bx
+.no_bus:
+    mov [result_bus_pct], ax
+
+    ; Avg ticks/scanline integer = result_100scan / 100
+    mov ax, [result_100scan]
+    xor dx, dx
+    mov bx, 100
+    div bx
+    mov [result_tps_int], ax
+    ; Fractional part
+    mov ax, dx
+    mov bx, 100
+    mul bx
+    mov bx, 100
+    div bx
+    mov [result_tps_frac], ax
+
+    ; Cycles/scanline if DCK/2: ticks_per_scan * 6
+    mov ax, [result_100scan]
+    xor dx, dx
+    mov bx, 100
+    div bx
+    mov bx, 6
+    mul bx
+    mov [result_cps_d2], ax
+
+    ; Cycles/scanline if DCK/3: ticks_per_scan * 4
+    mov ax, [result_100scan]
+    xor dx, dx
+    mov bx, 100
+    div bx
+    mov bx, 4
+    mul bx
+    mov [result_cps_d3], ax
+
+    ; ================================================================
     ; Restore PIT Ch0 to BIOS default
     ; ================================================================
     mov al, 00110110b
@@ -200,239 +255,226 @@ main:
     out PIT_CH0_DATA, al
 
     ; ================================================================
-    ; DISPLAY RESULTS
+    ; DISPLAY RESULTS — ANSI colored, compact 25-line layout
     ; ================================================================
-    mov ax, 0x0003
+    mov ax, 0x0003          ; Text mode 80x25
     int 0x10
 
-    ; --- Header ---
-    mov si, msg_header
-    call print_string
+    ; === Row 1: Title ===
+    mov ah, 09h
+    mov dx, s_title
+    int 21h
 
-    ; --- Frame period ---
-    mov si, msg_t1
-    call print_string
+    ; === Row 2: Separator ===
+    mov ah, 09h
+    mov dx, s_sep1
+    int 21h
+
+    ; === Row 3: Credits ===
+    mov ah, 09h
+    mov dx, s_credits
+    int 21h
+
+    ; === Row 4: blank ===
+    mov ah, 09h
+    mov dx, s_nl
+    int 21h
+
+    ; === Row 5: Section header — Timing ===
+    mov ah, 09h
+    mov dx, s_sec_timing
+    int 21h
+
+    ; === Row 6: Frame period ===
+    mov ah, 09h
+    mov dx, s_lbl_frame
+    int 21h
     mov ax, [result_frame]
-    call print_decimal
+    call print_dec
+    ; PAL or NTSC?
     mov ax, [result_frame]
     cmp ax, 21000
-    jb .hz60
-    mov si, msg_pal
-    jmp .hz_done
-.hz60:
-    mov si, msg_ntsc
-.hz_done:
-    call print_string
+    jb .is_ntsc
+    mov dx, s_sfx_pal
+    jmp .fr_done
+.is_ntsc:
+    mov dx, s_sfx_ntsc
+.fr_done:
+    mov ah, 09h
+    int 21h
 
-    ; --- 100 scanlines ---
-    mov si, msg_t2
-    call print_string
-    mov ax, [result_100scan]
-    call print_decimal
-    mov si, msg_nl
-    call print_string
+    ; === Row 7: Scanlines/frame ===
+    mov ah, 09h
+    mov dx, s_lbl_spf
+    int 21h
+    mov ax, [result_spf]
+    call print_dec
+    mov ah, 09h
+    mov dx, s_nl
+    int 21h
 
-    ; --- Avg ticks/scanline ---
-    mov si, msg_t2avg
-    call print_string
-    mov ax, [result_100scan]
-    xor dx, dx
-    mov bx, 100
-    div bx
-    call print_decimal
-    mov si, msg_dot
-    call print_string
-    mov ax, dx
-    mov bx, 100
-    mul bx
-    mov bx, 100
-    div bx
+    ; === Row 8: Ticks/scanline ===
+    mov ah, 09h
+    mov dx, s_lbl_tps
+    int 21h
+    mov ax, [result_tps_int]
+    call print_dec
+    mov al, '.'
+    call put_char
+    mov ax, [result_tps_frac]
     cmp ax, 10
     jae .f1ok
-    push ax
     mov al, '0'
-    call print_char
-    pop ax
+    call put_char
 .f1ok:
-    call print_decimal
-    mov si, msg_nl
-    call print_string
+    call print_dec
+    mov ah, 09h
+    mov dx, s_nl
+    int 21h
 
-    ; --- VBLANK duration ---
-    mov si, msg_t3
-    call print_string
+    ; === Row 9: VBLANK duration ===
+    mov ah, 09h
+    mov dx, s_lbl_vblank
+    int 21h
     mov ax, [result_vblank]
-    call print_decimal
-    mov si, msg_ticks
-    call print_string
-    ; Convert to scanlines: vblank_ticks / (100scan_ticks / 100)
-    mov si, msg_t3b
-    call print_string
-    mov ax, [result_vblank]
-    mov bx, 100
-    mul bx                      ; DX:AX = vblank × 100
-    mov bx, [result_100scan]
-    or bx, bx
-    jz .skip_vblines
-    div bx                      ; AX = VBLANK in scanlines
-    call print_decimal
-    mov si, msg_lines
-    call print_string
-    jmp .done_vblines
-.skip_vblines:
-    mov si, msg_err
-    call print_string
-.done_vblines:
+    call print_dec
+    mov ah, 09h
+    mov dx, s_sfx_vbtk
+    int 21h
+    mov ax, [result_vb_lines]
+    call print_dec
+    mov ah, 09h
+    mov dx, s_sfx_vbln
+    int 21h
 
-    ; --- KEY TEST ---
-    mov si, msg_sep
-    call print_string
+    ; === Row 10: blank ===
+    mov ah, 09h
+    mov dx, s_nl
+    int 21h
 
-    mov si, msg_t4
-    call print_string
+    ; === Row 11: Section header — Bus Test ===
+    mov ah, 09h
+    mov dx, s_sec_bus
+    int 21h
+
+    ; === Row 12: VBLANK loop ===
+    mov ah, 09h
+    mov dx, s_lbl_calvb
+    int 21h
     mov ax, [result_cal_vb]
-    call print_decimal
-    mov si, msg_ticks
-    call print_string
+    call print_dec
+    mov ah, 09h
+    mov dx, s_sfx_ticks
+    int 21h
 
-    mov si, msg_t5
-    call print_string
+    ; === Row 13: Display loop ===
+    mov ah, 09h
+    mov dx, s_lbl_calact
+    int 21h
     mov ax, [result_cal_act]
-    call print_decimal
-    mov si, msg_ticks
-    call print_string
+    call print_dec
+    mov ah, 09h
+    mov dx, s_sfx_ticks
+    int 21h
 
-    ; Bus contention %
-    mov si, msg_bus
-    call print_string
-    mov ax, [result_cal_act]
-    mov bx, 100
-    mul bx
-    mov bx, [result_cal_vb]
-    or bx, bx
-    jz .skip_bus
-    div bx
-    call print_decimal
-    mov si, msg_pct
-    call print_string
-    jmp .done_bus
-.skip_bus:
-    mov si, msg_err
-    call print_string
-.done_bus:
+    ; === Row 14: Bus contention ===
+    mov ah, 09h
+    mov dx, s_lbl_bus
+    int 21h
+    mov ax, [result_bus_pct]
+    call print_dec
+    mov ah, 09h
+    mov dx, s_sfx_bus
+    int 21h
 
-    ; --- Interpretation ---
-    mov si, msg_interp
-    call print_string
+    ; === Row 15: blank ===
+    mov ah, 09h
+    mov dx, s_nl
+    int 21h
 
-    ; Show scanlines per frame
-    mov si, msg_spf
-    call print_string
-    mov ax, [result_frame]
-    mov bx, 10
-    mul bx                      ; DX:AX = frame_ticks × 10
-    mov bx, [result_100scan]
-    or bx, bx
-    jz .skip_spf
-    push ax
-    push dx
-    ; (frame × 10) / (100scan) × (100/10) = frame × 1000 / 100scan
-    ; Actually: (frame / (100scan/100)) = (frame × 100) / 100scan
-    pop dx
-    pop ax
-    ; Let me redo: scanlines/frame = frame_ticks / ticks_per_scanline
-    ;            = frame × 100 / result_100scan
-    mov ax, [result_frame]
-    mov bx, 100
-    mul bx                      ; DX:AX = frame × 100
-    mov bx, [result_100scan]
-    div bx                      ; AX = scanlines per frame
-    call print_decimal
-    mov si, msg_nl
-    call print_string
-    jmp .done_spf
-.skip_spf:
-    mov si, msg_err
-    call print_string
-.done_spf:
+    ; === Row 16: Section header — Result ===
+    mov ah, 09h
+    mov dx, s_sec_result
+    int 21h
 
-    ; Expected values table
-    mov si, msg_expected
-    call print_string
-
-    ; Best match logic using VBLANK calibration
-    ; v2 showed: 4894 PIT for 1000 iters. Per iter = 4.894.
-    ; At 7.16 MHz: 4.894 × 6 = 29.4 cycles/iter (correct for 8-bit bus V40)
-    ; For 100 iters at same per-iter cost: expect ~489 PIT ticks
-    ;
-    ; Match ranges (PIT ticks for 100 iters):
-    ;   4.77 MHz: ~725 (high)
-    ;   7.16 MHz: ~489 (middle)
-    ;   8.00 MHz: ~432 (low)
-    ;   Midpoints: (725+489)/2=607, (489+432)/2=461
-
-    mov si, msg_match
-    call print_string
+    ; === Row 17: Best match ===
+    mov ah, 09h
+    mov dx, s_lbl_match
+    int 21h
+    ; Determine best match
     mov ax, [result_cal_vb]
     cmp ax, 607
     jae .m477
     cmp ax, 461
     jae .m716
-    mov si, msg_r8mhz
-    call print_string
-    jmp .done_match
+    mov dx, s_r8mhz
+    jmp .mdone
 .m716:
-    mov si, msg_r716
-    call print_string
-    jmp .done_match
+    mov dx, s_r716
+    jmp .mdone
 .m477:
-    mov si, msg_r477
-    call print_string
-.done_match:
+    mov dx, s_r477
+.mdone:
+    mov ah, 09h
+    int 21h
 
-    ; Estimated cycles/scanline (for info)
-    ; cyc/scan = (cal_per_iter_cycles × ticks_per_scanline) / cal_per_iter_PIT
-    ; Where cal_per_iter is from VBLANK test.
-    ; We don't know cal_per_iter_cycles exactly, but we can show the
-    ; two possible values:
-    mov si, msg_cps_hdr
-    call print_string
+    ; === Row 18: Cycles/scanline ===
+    mov ah, 09h
+    mov dx, s_lbl_cps
+    int 21h
+    mov ax, [result_cps_d2]
+    call print_dec
+    mov ah, 09h
+    mov dx, s_sfx_d2
+    int 21h
+    mov ax, [result_cps_d3]
+    call print_dec
+    mov ah, 09h
+    mov dx, s_sfx_d3
+    int 21h
 
-    ; If DCK/2 (ratio 6.0): cyc/scan = (ticks/scan) × 6
-    mov si, msg_cps2
-    call print_string
-    mov ax, [result_100scan]
-    xor dx, dx
-    mov bx, 100
-    div bx                      ; AX = ticks/scanline
-    mov bx, 6
-    mul bx                      ; AX = cycles/scanline at DCK/2
-    call print_decimal
-    mov si, msg_nl
-    call print_string
+    ; === Row 19: blank ===
+    mov ah, 09h
+    mov dx, s_nl
+    int 21h
 
-    ; If DCK/3 (ratio 4.0): cyc/scan = (ticks/scan) × 4
-    mov si, msg_cps3
-    call print_string
-    mov ax, [result_100scan]
-    xor dx, dx
-    mov bx, 100
-    div bx
-    mov bx, 4
-    mul bx
-    call print_decimal
-    mov si, msg_nl
-    call print_string
+    ; === Row 20: Section header — Reference ===
+    mov ah, 09h
+    mov dx, s_sec_ref
+    int 21h
 
-    ; Hint
-    mov si, msg_hint
-    call print_string
+    ; === Row 21: Expected PIT values ===
+    mov ah, 09h
+    mov dx, s_ref_pit
+    int 21h
 
-    ; Done
-    mov si, msg_press
-    call print_string
+    ; === Row 22: CPU/PIT ratios ===
+    mov ah, 09h
+    mov dx, s_ref_ratio
+    int 21h
+
+    ; === Row 23: Tip ===
+    mov ah, 09h
+    mov dx, s_tip
+    int 21h
+
+    ; === Row 24: blank ===
+    mov ah, 09h
+    mov dx, s_nl
+    int 21h
+
+    ; === Row 25: Press any key ===
+    mov ah, 09h
+    mov dx, s_press
+    int 21h
+
+    ; Wait for keypress, exit
     mov ah, 0x00
     int 0x16
+    ; Reset colors before exit
+    mov ah, 09h
+    mov dx, s_reset
+    int 21h
     mov ax, 0x4C00
     int 0x21
 
@@ -440,7 +482,7 @@ main:
 ; SUBROUTINES
 ; ============================================================================
 pit_ch0_freerun:
-    mov al, 00110100b
+    mov al, 00110100b       ; Ch0, mode 2, lo/hi
     out PIT_CMD, al
     xor al, al
     out PIT_CH0_DATA, al
@@ -454,7 +496,7 @@ pit_ch0_freerun:
 
 latch_pit_ch0:
     push dx
-    mov al, 00000000b
+    mov al, 00000000b       ; Latch Ch0
     out PIT_CMD, al
     in al, PIT_CH0_DATA
     mov dl, al
@@ -492,29 +534,8 @@ wait_hsync_edge:
     pop ax
     ret
 
-print_string:
-    push ax
-    push si
-.lp:lodsb
-    or al, al
-    jz .dn
-    call print_char
-    jmp .lp
-.dn:pop si
-    pop ax
-    ret
-
-print_char:
-    push ax
-    push bx
-    mov ah, 0x0E
-    mov bx, 0x0007
-    int 0x10
-    pop bx
-    pop ax
-    ret
-
-print_decimal:
+; Print AX as unsigned decimal via DOS (preserves all regs)
+print_dec:
     push ax
     push bx
     push cx
@@ -529,7 +550,7 @@ print_decimal:
     jnz .dv
 .pr:pop ax
     add al, '0'
-    call print_char
+    call put_char
     loop .pr
     pop dx
     pop cx
@@ -537,64 +558,250 @@ print_decimal:
     pop ax
     ret
 
-; ============================================================================
-; DATA
-; ============================================================================
-pit_start:      dw 0
-pit_end:        dw 0
-result_frame:   dw 0
-result_100scan: dw 0
-result_vblank:  dw 0
-result_cal_vb:  dw 0
-result_cal_act: dw 0
+; Print single char in AL via DOS
+put_char:
+    push ax
+    push dx
+    mov dl, al
+    mov ah, 02h
+    int 21h
+    pop dx
+    pop ax
+    ret
 
 ; ============================================================================
-; STRINGS
+; DATA — measurement results
 ; ============================================================================
-msg_header: db '=== PITCLK v3: CPU Clock Measurement ===', 13, 10
-            db 'Olivetti PC1 / V6355D / NEC V40', 13, 10, 13, 10, 0
+pit_start:       dw 0
+pit_end:         dw 0
+result_frame:    dw 0
+result_100scan:  dw 0
+result_vblank:   dw 0
+result_cal_vb:   dw 0
+result_cal_act:  dw 0
+result_spf:      dw 0
+result_vb_lines: dw 0
+result_bus_pct:  dw 0
+result_tps_int:  dw 0
+result_tps_frac: dw 0
+result_cps_d2:   dw 0
+result_cps_d3:   dw 0
 
-msg_t1:     db 'Frame period:      ', 0
-msg_pal:    db ' ticks (50 Hz PAL)', 13, 10, 0
-msg_ntsc:   db ' ticks (60 Hz NTSC)', 13, 10, 0
+; ============================================================================
+; DISPLAY STRINGS — ANSI escape sequences
+; ============================================================================
+; Color key:
+;   Bright Cyan  (1;36m)  = title, section separators
+;   Bright Yellow(1;33m)  = labels
+;   Bright White (1;37m)  = raw measured values
+;   Bright Green (1;32m)  = derived/calculated values
+;   Bright Magenta(1;35m) = best match highlight
+;   Grey         (0;37m)  = reference data, dim info
+;   Reset        (0m)
 
-msg_t2:     db '100 scanlines:     ', 0
-msg_t2avg:  db 'Avg ticks/scan:    ', 0
+; Row 1: Title
+s_title:
+    db ESC, '[2J'                           ; Clear screen
+    db ESC, '[H'                            ; Home cursor
+    db ESC, '[1;36m'                        ; Bright Cyan
+    db ' PITCLK v4: CPU Clock Measurement', 13, 10, '$'
 
-msg_t3:     db 'VBLANK duration:   ', 0
-msg_t3b:    db 'VBLANK scanlines:  ', 0
-msg_lines:  db ' lines', 13, 10, 0
+; Row 2: Separator
+s_sep1:
+    db ESC, '[1;33m'                        ; Yellow
+    db ' ', 205,205,205,205,205,205,205,205,205,205,205,205,205,205,205
+    db     205,205,205,205,205,205,205,205,205,205,205,205,205,205,205
+    db     205,205,205,205,205,205,205,205,205,205,205,205,205,205,205
+    db     205,205,205,205,205,205,205,205,205,205,205
+    db 13, 10, '$'
 
-msg_sep:    db 13, 10, '--- KEY TEST (100-iter loop, VBLANK) ---', 13, 10, 0
-msg_t4:     db 'During VBLANK:     ', 0
-msg_t5:     db 'During display:    ', 0
-msg_bus:    db 'Bus contention:    ', 0
-msg_pct:    db '%', 13, 10, 0
-msg_err:    db 'ERR', 13, 10, 0
+; Row 3: Credits
+s_credits:
+    db ESC, '[0;37m'                        ; Grey
+    db ' Created by '
+    db ESC, '[1;35m', 'Retro '              ; Magenta
+    db ESC, '[1;36m', 'Erik'                ; Cyan
+    db ESC, '[0;37m', ', 2026'              ; Grey
+    db ' ', 196, ' Olivetti PC1 / V6355D / NEC V40'
+    db 13, 10, '$'
 
-msg_interp: db 13, 10, '--- INTERPRETATION ---', 13, 10, 0
-msg_spf:    db 'Scanlines/frame:   ', 0
+; Row 5: Section — Timing
+s_sec_timing:
+    db ESC, '[1;36m'                        ; Bright Cyan
+    db ' ', 196,196,196, ' Timing '
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196
+    db 13, 10, '$'
 
-msg_expected: db 13, 10, 'Expected VBLANK PIT for 100 iters:', 13, 10
-              db '  4.77 MHz (DCK/3): ~725 ticks', 13, 10
-              db '  7.16 MHz (DCK/2): ~489 ticks', 13, 10
-              db '  8.00 MHz (indep): ~432 ticks', 13, 10, 13, 10, 0
+; Row 6: Frame period (label)
+s_lbl_frame:
+    db ESC, '[1;33m'                        ; Yellow
+    db '  Frame period:       '
+    db ESC, '[1;37m', '$'                   ; White for value
 
-msg_match:  db 'Best match: ', 0
-msg_r8mhz:  db '~8 MHz (separate oscillator)', 13, 10, 0
-msg_r716:   db '~7.16 MHz = DCK/2 = PIXEL CLOCK', 13, 10, 0
-msg_r477:   db '~4.77 MHz = DCK/3 (normal mode)', 13, 10, 0
+; Row 6 suffix: PAL or NTSC
+s_sfx_pal:
+    db ESC, '[0;37m'
+    db ' ticks '
+    db ESC, '[1;33m'
+    db '(50 Hz PAL)', 13, 10, '$'
+s_sfx_ntsc:
+    db ESC, '[0;37m'
+    db ' ticks '
+    db ESC, '[1;33m'
+    db '(60 Hz NTSC)', 13, 10, '$'
 
-msg_cps_hdr: db 13, 10, 'CPU cycles per scanline:', 13, 10, 0
-msg_cps2:   db '  If DCK/2 (7.16 MHz): ', 0
-msg_cps3:   db '  If DCK/3 (4.77 MHz): ', 0
-msg_cps_ref: db 0
+; Row 7: Scanlines/frame
+s_lbl_spf:
+    db ESC, '[1;33m'
+    db '  Scanlines/frame:    '
+    db ESC, '[1;32m', '$'                   ; Green for derived
 
-msg_hint:   db 13, 10, 'TIP: Run in BOTH Turbo and Normal mode.', 13, 10
-            db 'If Normal/Turbo PIT ratio = 1.50,', 13, 10
-            db 'both clocks derive from same crystal.', 13, 10, 0
+; Row 8: Ticks/scanline
+s_lbl_tps:
+    db ESC, '[1;33m'
+    db '  Ticks/scanline:     '
+    db ESC, '[1;37m', '$'                   ; White
 
-msg_ticks:  db ' ticks', 13, 10, 0
-msg_dot:    db '.', 0
-msg_nl:     db 13, 10, 0
-msg_press:  db 13, 10, 'Press any key to exit...', 0
+; Row 9: VBLANK
+s_lbl_vblank:
+    db ESC, '[1;33m'
+    db '  VBLANK duration:    '
+    db ESC, '[1;37m', '$'                   ; White
+
+s_sfx_vbtk:
+    db ESC, '[0;37m', ' ticks '
+    db ESC, '[1;32m', '('
+    db '$'
+
+s_sfx_vbln:
+    db ESC, '[1;32m', ' lines'
+    db ESC, '[1;32m', ')'
+    db 13, 10, '$'
+
+; Row 11: Section — Bus Test
+s_sec_bus:
+    db ESC, '[1;36m'
+    db ' ', 196,196,196, ' Bus Test (100-iter NOP loop) '
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196,196,196,196,196,196,196
+    db 13, 10, '$'
+
+; Row 12: VBLANK loop
+s_lbl_calvb:
+    db ESC, '[1;33m'
+    db '  VBLANK loop:        '
+    db ESC, '[1;37m', '$'
+
+; Row 13: Display loop
+s_lbl_calact:
+    db ESC, '[1;33m'
+    db '  Display loop:       '
+    db ESC, '[1;37m', '$'
+
+; Row 14: Bus contention
+s_lbl_bus:
+    db ESC, '[1;33m'
+    db '  Bus contention:     '
+    db ESC, '[1;37m', '$'
+
+s_sfx_ticks:
+    db ESC, '[0;37m', ' ticks', 13, 10, '$'
+
+s_sfx_bus:
+    db ESC, '[0;37m', '%'
+    db ESC, '[0;37m', '  (100% = no V6355D bus stealing)'
+    db 13, 10, '$'
+
+; Row 16: Section — Result
+s_sec_result:
+    db ESC, '[1;36m'
+    db ' ', 196,196,196, ' Result '
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196
+    db 13, 10, '$'
+
+; Row 17: Best match
+s_lbl_match:
+    db ESC, '[1;33m'
+    db '  Best match:         '
+    db ESC, '[1;35m', '$'                   ; Magenta for result
+
+s_r716:
+    db '~7.16 MHz = DCK/2 = PIXEL CLOCK!'
+    db 13, 10, '$'
+s_r477:
+    db '~4.77 MHz = DCK/3 (normal mode)'
+    db 13, 10, '$'
+s_r8mhz:
+    db '~8 MHz (separate oscillator)'
+    db 13, 10, '$'
+
+; Row 18: Cycles/scanline
+s_lbl_cps:
+    db ESC, '[1;33m'
+    db '  Cycles/scanline:    '
+    db ESC, '[1;32m', '$'                   ; Green
+
+s_sfx_d2:
+    db ESC, '[0;37m', ' (DCK/2)    '
+    db ESC, '[1;32m', '$'
+
+s_sfx_d3:
+    db ESC, '[0;37m', ' (DCK/3)'
+    db 13, 10, '$'
+
+; Row 20: Section — Reference
+s_sec_ref:
+    db ESC, '[1;36m'
+    db ' ', 196,196,196, ' Reference '
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 196,196,196,196,196,196,196,196,196,196,196,196,196
+    db 13, 10, '$'
+
+; Row 21: Expected PIT values
+s_ref_pit:
+    db ESC, '[0;37m'
+    db '  Expected PIT: '
+    db ESC, '[1;37m', '~725'
+    db ESC, '[0;37m', ' (4.77 DCK/3)  '
+    db ESC, '[1;37m', '~489'
+    db ESC, '[0;37m', ' (7.16 DCK/2)  '
+    db ESC, '[1;37m', '~432'
+    db ESC, '[0;37m', ' (8 MHz)'
+    db 13, 10, '$'
+
+; Row 22: CPU/PIT ratios
+s_ref_ratio:
+    db ESC, '[0;37m'
+    db '  CPU/PIT ratio: '
+    db ESC, '[1;37m', '4.0'
+    db ESC, '[0;37m', ' (DCK/3)   '
+    db ESC, '[1;37m', '6.0'
+    db ESC, '[0;37m', ' (DCK/2)   '
+    db ESC, '[1;37m', '6.7'
+    db ESC, '[0;37m', ' (8 MHz)'
+    db 13, 10, '$'
+
+; Row 23: Tip
+s_tip:
+    db ESC, '[1;33m', '  TIP: '
+    db ESC, '[0;37m'
+    db 'Run in BOTH Turbo and Normal. If ratio ~1.5x '
+    db 196, ' same crystal!'
+    db 13, 10, '$'
+
+; Row 25: Press any key
+s_press:
+    db ESC, '[1;33m'
+    db ' Press any key to exit...'
+    db ESC, '[0m', '$'
+
+; Utility strings
+s_nl:       db 13, 10, '$'
+s_reset:    db ESC, '[0m', '$'
