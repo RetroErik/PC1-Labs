@@ -1,0 +1,455 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 790" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <!-- Background gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1a3a5c"/>
+      <stop offset="100%" stop-color="#0a1a2e"/>
+    </radialGradient>
+    <!-- Gold gradient for borders -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4a020"/>
+      <stop offset="30%" stop-color="#f0d060"/>
+      <stop offset="50%" stop-color="#ffe880"/>
+      <stop offset="70%" stop-color="#f0d060"/>
+      <stop offset="100%" stop-color="#d4a020"/>
+    </linearGradient>
+    <!-- Gold gradient for title bar -->
+    <linearGradient id="titleGold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#a07010"/>
+      <stop offset="20%" stop-color="#d4a020"/>
+      <stop offset="50%" stop-color="#ffe880"/>
+      <stop offset="80%" stop-color="#d4a020"/>
+      <stop offset="100%" stop-color="#a07010"/>
+    </linearGradient>
+    <!-- Even bank gradient -->
+    <linearGradient id="evenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1a7aaa"/>
+      <stop offset="100%" stop-color="#0d4a6a"/>
+    </linearGradient>
+    <!-- Odd bank gradient -->
+    <linearGradient id="oddGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#7a3aaa"/>
+      <stop offset="100%" stop-color="#4a1a6a"/>
+    </linearGradient>
+    <!-- Gap gradient -->
+    <linearGradient id="gapGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#d4a020"/>
+      <stop offset="100%" stop-color="#a07010"/>
+    </linearGradient>
+    <!-- Ring display area gradient -->
+    <linearGradient id="ringDisplay" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a7aaa"/>
+      <stop offset="50%" stop-color="#2a8aba"/>
+      <stop offset="100%" stop-color="#1a6a9a"/>
+    </linearGradient>
+    <!-- Ring gap gradient -->
+    <linearGradient id="ringGap" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0a820"/>
+      <stop offset="100%" stop-color="#c09018"/>
+    </linearGradient>
+    <!-- Step box gradient -->
+    <linearGradient id="stepGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1a5a3a"/>
+      <stop offset="100%" stop-color="#0d3a2a"/>
+    </linearGradient>
+    <!-- Grid pattern -->
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <rect width="20" height="20" fill="none"/>
+      <line x1="20" y1="0" x2="20" y2="20" stroke="#ffffff08" stroke-width="0.5"/>
+      <line x1="0" y1="20" x2="20" y2="20" stroke="#ffffff08" stroke-width="0.5"/>
+    </pattern>
+    <!-- Scanline bar gradient -->
+    <linearGradient id="barDark" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1a1a2a"/>
+      <stop offset="100%" stop-color="#2a2a3a"/>
+    </linearGradient>
+    <!-- Drop shadow filter -->
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#00000080"/>
+    </filter>
+    <!-- Glow filter -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Soft glow for ring -->
+    <filter id="ringGlow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Arrow markers -->
+    <marker id="arrowGold" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d4a020"/>
+    </marker>
+    <marker id="arrowCyan" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#40d0f0"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#50dd80"/>
+    </marker>
+    <marker id="arrowWhite" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#cccccc"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#e0a820"/>
+    </marker>
+  </defs>
+
+  <!-- ==================== BACKGROUND ==================== -->
+  <rect width="1100" height="790" fill="url(#bgGrad)"/>
+  <rect width="1100" height="790" fill="url(#grid)"/>
+
+  <!-- ==================== OUTER GOLD BORDER ==================== -->
+  <rect x="15" y="15" width="1070" height="760" rx="8" ry="8"
+        fill="none" stroke="url(#goldGrad)" stroke-width="4"/>
+  <rect x="22" y="22" width="1056" height="746" rx="6" ry="6"
+        fill="none" stroke="#d4a02060" stroke-width="1"/>
+
+  <!-- Corner ornaments -->
+  <circle cx="15" cy="15" r="6" fill="#d4a020" opacity="0.6"/>
+  <circle cx="1085" cy="15" r="6" fill="#d4a020" opacity="0.6"/>
+  <circle cx="15" cy="775" r="6" fill="#d4a020" opacity="0.6"/>
+  <circle cx="1085" cy="775" r="6" fill="#d4a020" opacity="0.6"/>
+
+  <!-- ==================== TITLE BAR ==================== -->
+  <rect x="180" y="30" width="740" height="42" rx="4" fill="#0a1a2e" stroke="url(#titleGold)" stroke-width="2"/>
+  <text x="550" y="58" text-anchor="middle" font-size="22" font-weight="bold"
+        fill="url(#titleGold)" filter="url(#glow)" font-variant="small-caps"
+        letter-spacing="3">True Circular Buffer VRAM Scroller</text>
+  <line x1="200" y1="68" x2="900" y2="68" stroke="#d4a02040" stroke-width="1"/>
+
+  <!-- ================================================================ -->
+  <!-- LEFT PANEL: VRAM MEMORY LAYOUT                                   -->
+  <!-- ================================================================ -->
+  <rect x="45" y="85" width="470" height="370" rx="6" fill="#0d1f35" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.95"/>
+
+  <!-- Panel title -->
+  <text x="280" y="112" text-anchor="middle" font-size="16" fill="#cccccc" font-weight="bold" letter-spacing="2">INTERLACED VRAM LAYOUT</text>
+  <line x1="100" y1="118" x2="460" y2="118" stroke="#ffffff30" stroke-width="1"/>
+
+  <!-- === EVEN BANK BAR === -->
+  <!-- Display area -->
+  <rect x="110" y="140" width="80" height="255" rx="3" fill="url(#evenGrad)" stroke="#3a9acaaa" stroke-width="1.5"/>
+  <!-- Text pattern inside -->
+  <line x1="110" y1="165" x2="190" y2="165" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="190" x2="190" y2="190" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="215" x2="190" y2="215" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="240" x2="190" y2="240" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="265" x2="190" y2="265" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="290" x2="190" y2="290" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="315" x2="190" y2="315" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="340" x2="190" y2="340" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="110" y1="365" x2="190" y2="365" stroke="#ffffff10" stroke-width="0.5"/>
+
+  <!-- Gap area -->
+  <rect x="110" y="395" width="80" height="18" rx="0 0 3 3" fill="url(#gapGrad)" stroke="#c09018aa" stroke-width="1.5"/>
+  <!-- Hatching for gap -->
+  <line x1="115" y1="395" x2="125" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="130" y1="395" x2="140" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="145" y1="395" x2="155" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="160" y1="395" x2="170" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="175" y1="395" x2="185" y2="413" stroke="#ffffff20" stroke-width="1"/>
+
+  <!-- Even bank labels -->
+  <text x="150" y="158" text-anchor="middle" font-size="13" fill="#ffffff" font-weight="bold">EVEN</text>
+  <text x="150" y="172" text-anchor="middle" font-size="10" fill="#aaddff">BANK</text>
+  <text x="150" y="260" text-anchor="middle" font-size="10" fill="#88ccee" font-style="italic">Rows</text>
+  <text x="150" y="274" text-anchor="middle" font-size="10" fill="#88ccee" font-style="italic">0, 2, 4</text>
+  <text x="150" y="288" text-anchor="middle" font-size="10" fill="#88ccee" font-style="italic">... 190</text>
+  <text x="150" y="320" text-anchor="middle" font-size="9" fill="#6699aa">96 rows</text>
+  <text x="150" y="334" text-anchor="middle" font-size="9" fill="#6699aa">× 80B</text>
+  <text x="150" y="408" text-anchor="middle" font-size="9" fill="#ffffff" font-weight="bold">GAP</text>
+
+  <!-- Even bank address labels -->
+  <text x="105" y="146" text-anchor="end" font-size="10" fill="#889999" font-family="'Consolas', monospace">0x0000</text>
+  <text x="105" y="399" text-anchor="end" font-size="9" fill="#aa8833" font-family="'Consolas', monospace">0x1E00</text>
+  <text x="105" y="415" text-anchor="end" font-size="10" fill="#889999" font-family="'Consolas', monospace">0x1FFF</text>
+
+  <!-- Size annotations for even bank -->
+  <!-- Bracket for display area -->
+  <line x1="195" y1="140" x2="203" y2="140" stroke="#ffffff40" stroke-width="1"/>
+  <line x1="203" y1="140" x2="203" y2="395" stroke="#ffffff40" stroke-width="1"/>
+  <line x1="195" y1="395" x2="203" y2="395" stroke="#ffffff40" stroke-width="1"/>
+  <text x="210" y="272" font-size="9" fill="#6699aa">7680B</text>
+
+  <!-- Bracket for gap -->
+  <line x1="195" y1="397" x2="203" y2="397" stroke="#aa881180" stroke-width="1"/>
+  <line x1="203" y1="397" x2="203" y2="413" stroke="#aa881180" stroke-width="1"/>
+  <line x1="195" y1="413" x2="203" y2="413" stroke="#aa881180" stroke-width="1"/>
+  <text x="210" y="409" font-size="9" fill="#aa8833">512B</text>
+
+  <!-- === ODD BANK BAR === -->
+  <!-- Display area -->
+  <rect x="310" y="140" width="80" height="255" rx="3" fill="url(#oddGrad)" stroke="#9a5acaaa" stroke-width="1.5"/>
+  <!-- Text pattern lines -->
+  <line x1="310" y1="165" x2="390" y2="165" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="190" x2="390" y2="190" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="215" x2="390" y2="215" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="240" x2="390" y2="240" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="265" x2="390" y2="265" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="290" x2="390" y2="290" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="315" x2="390" y2="315" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="340" x2="390" y2="340" stroke="#ffffff10" stroke-width="0.5"/>
+  <line x1="310" y1="365" x2="390" y2="365" stroke="#ffffff10" stroke-width="0.5"/>
+
+  <!-- Gap area -->
+  <rect x="310" y="395" width="80" height="18" rx="0 0 3 3" fill="url(#gapGrad)" stroke="#c09018aa" stroke-width="1.5"/>
+  <line x1="315" y1="395" x2="325" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="330" y1="395" x2="340" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="345" y1="395" x2="355" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="360" y1="395" x2="370" y2="413" stroke="#ffffff20" stroke-width="1"/>
+  <line x1="375" y1="395" x2="385" y2="413" stroke="#ffffff20" stroke-width="1"/>
+
+  <!-- Odd bank labels -->
+  <text x="350" y="158" text-anchor="middle" font-size="13" fill="#ffffff" font-weight="bold">ODD</text>
+  <text x="350" y="172" text-anchor="middle" font-size="10" fill="#ddaaff">BANK</text>
+  <text x="350" y="260" text-anchor="middle" font-size="10" fill="#cc99ee" font-style="italic">Rows</text>
+  <text x="350" y="274" text-anchor="middle" font-size="10" fill="#cc99ee" font-style="italic">1, 3, 5</text>
+  <text x="350" y="288" text-anchor="middle" font-size="10" fill="#cc99ee" font-style="italic">... 191</text>
+  <text x="350" y="320" text-anchor="middle" font-size="9" fill="#9966aa">96 rows</text>
+  <text x="350" y="334" text-anchor="middle" font-size="9" fill="#9966aa">× 80B</text>
+  <text x="350" y="408" text-anchor="middle" font-size="9" fill="#ffffff" font-weight="bold">GAP</text>
+
+  <!-- Odd bank address labels -->
+  <text x="398" y="146" text-anchor="start" font-size="10" fill="#889999" font-family="'Consolas', monospace">0x2000</text>
+  <text x="398" y="415" text-anchor="start" font-size="10" fill="#889999" font-family="'Consolas', monospace">0x3FFF</text>
+
+  <!-- === INTERLACING ARROWS === -->
+  <!-- Show even/odd rows interleaving to form the display -->
+  <!-- Arrow from even to middle -->
+  <path d="M 192,185 C 220,185 230,182 248,182" stroke="#3a9aca60" stroke-width="1.5" fill="none" marker-end="url(#arrowCyan)"/>
+  <path d="M 308,195 C 280,195 270,192 258,192" stroke="#7a3aaa60" stroke-width="1.5" fill="none" marker-end="url(#arrowCyan)"/>
+  <path d="M 192,215 C 220,215 230,212 248,212" stroke="#3a9aca60" stroke-width="1.5" fill="none"/>
+  <path d="M 308,225 C 280,225 270,222 258,222" stroke="#7a3aaa60" stroke-width="1.5" fill="none"/>
+  <path d="M 192,245 C 220,245 230,242 248,242" stroke="#3a9aca60" stroke-width="1.5" fill="none"/>
+  <path d="M 308,255 C 280,255 270,252 258,252" stroke="#7a3aaa60" stroke-width="1.5" fill="none"/>
+
+  <!-- Interlace annotation -->
+  <text x="250" y="186" text-anchor="middle" font-size="8" fill="#6699aa">Line 0</text>
+  <text x="250" y="196" text-anchor="middle" font-size="8" fill="#9966aa">Line 1</text>
+  <text x="250" y="216" text-anchor="middle" font-size="8" fill="#6699aa">Line 2</text>
+  <text x="250" y="226" text-anchor="middle" font-size="8" fill="#9966aa">Line 3</text>
+  <text x="250" y="246" text-anchor="middle" font-size="8" fill="#6699aa">Line 4</text>
+  <text x="250" y="256" text-anchor="middle" font-size="8" fill="#9966aa">Line 5</text>
+  <text x="250" y="270" text-anchor="middle" font-size="8" fill="#555555">⋮</text>
+
+  <!-- Register 0x65 annotation box -->
+  <rect x="60" y="425" width="440" height="22" rx="3" fill="#0a2a1a" stroke="#50dd8060" stroke-width="1"/>
+  <text x="280" y="440" text-anchor="middle" font-size="11" fill="#50dd80" font-weight="bold">
+    Register 0x65 = 0x08 → Genuine 192-line mode → 512B gap per bank
+  </text>
+
+  <!-- ================================================================ -->
+  <!-- RIGHT PANEL: CIRCULAR BUFFER RING                                -->
+  <!-- ================================================================ -->
+  <rect x="535" y="85" width="510" height="370" rx="6" fill="#0d1f35" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.95"/>
+
+  <!-- Panel title -->
+  <text x="790" y="112" text-anchor="middle" font-size="16" fill="#cccccc" font-weight="bold" letter-spacing="2">CIRCULAR BUFFER RING</text>
+  <line x1="590" y1="118" x2="990" y2="118" stroke="#ffffff30" stroke-width="1"/>
+  <text x="660" y="270" text-anchor="end" font-size="11" fill="#888888" font-style="italic">
+    <tspan x="660" dy="0">Each 8K bank wraps —</tspan>
+    <tspan x="660" dy="14">CRTC MA counter</tspan>
+    <tspan x="660" dy="14">handles it naturally</tspan>
+  </text>
+
+  <!-- === RING BUFFER DIAGRAM === -->
+  <!-- Display annulus: 337.5° (96 rows × 80B = 7680B of 8192B) -->
+  <!-- Center: (790, 280), Outer R: 118, Inner R: 76 -->
+  <!-- 0° = top (CRTC start), clockwise, 337.5° = end of display -->
+  <!-- θ=337.5°: sin=-0.3827, cos=0.9239 -->
+  <!-- Outer at 337.5°: (790-45.2, 280-109.0) = (744.8, 171.0) -->
+  <!-- Inner at 337.5°: (790-29.1, 280-70.2) = (760.9, 209.8) -->
+
+  <path d="M 790,162 A 118,118 0 1,1 744.8,171.0 L 760.9,209.8 A 76,76 0 1,0 790,204 Z"
+        fill="#1a7aaa" stroke="#3abadc" stroke-width="2" opacity="0.85" filter="url(#ringGlow)"/>
+
+  <!-- Gap annulus: 22.5° (512 bytes) -->
+  <path d="M 744.8,171.0 A 118,118 0 0,1 790,162 L 790,204 A 76,76 0 0,0 760.9,209.8 Z"
+        fill="#d4a020" stroke="#ffe060" stroke-width="2" opacity="0.9"/>
+
+  <!-- Ring center text -->
+  <text x="790" y="268" text-anchor="middle" font-size="13" fill="#ffffff" font-weight="bold">CRTC MA</text>
+  <text x="790" y="284" text-anchor="middle" font-size="11" fill="#aaaaaa">wraps at</text>
+  <text x="790" y="300" text-anchor="middle" font-size="13" fill="#40d0f0" font-weight="bold" font-family="'Consolas', monospace">8192 bytes</text>
+
+  <!-- 96 ROWS label (bottom of ring, at 180°) -->
+  <text x="790" y="416" text-anchor="middle" font-size="12" fill="#3abadc" font-weight="bold">96 displayed rows</text>
+  <text x="790" y="430" text-anchor="middle" font-size="10" fill="#6699aa">7680 bytes per bank</text>
+
+  <!-- CRTC START marker at top (0°) -->
+  <!-- Triangle pointing to ring at top -->
+  <polygon points="790,145 785,135 795,135" fill="#50dd80"/>
+  <text x="790" y="130" text-anchor="middle" font-size="11" fill="#50dd80" font-weight="bold">CRTC START</text>
+  <text x="790" y="142" text-anchor="middle" font-size="9" fill="#50dd80" font-family="'Consolas', monospace">R12/R13</text>
+
+  <!-- GAP / WRITE-HERE marker (mid gap at ~348.75°) -->
+  <!-- sin(348.75°)=-0.1951, cos(348.75°)=0.9808 -->
+  <!-- Mid R=97: x=790-18.9=771.1, y=280-95.1=184.9 -->
+  <!-- Arrow pointing to gap from upper-left -->
+  <line x1="690" y1="150" x2="752" y2="175" stroke="#e0a820" stroke-width="2" marker-end="url(#arrowAmber)"/>
+  <text x="680" y="145" text-anchor="end" font-size="11" fill="#e0a820" font-weight="bold">WRITE HERE</text>
+  <text x="680" y="158" text-anchor="end" font-size="9" fill="#aa8833" font-style="italic">New row → gap</text>
+
+  <!-- Clockwise direction arrows along outer ring -->
+  <!-- Small chevron triangles showing CRTC read direction -->
+  <!-- At θ=70°: x=790+124*sin70=790+116.5=906.5, y=280-124*cos70=280-42.4=237.6 -->
+  <polygon points="-6,-4 6,0 -6,4" fill="#40d0f0" opacity="0.8"
+           transform="translate(906.5, 237.6) rotate(70)"/>
+  <!-- At θ=170°: x=790+124*sin170=790+21.5=811.5, y=280-124*cos170=280+122.1=402.1 -->
+  <polygon points="-6,-4 6,0 -6,4" fill="#40d0f0" opacity="0.8"
+           transform="translate(811.5, 402.1) rotate(170)"/>
+  <!-- At θ=260°: x=790+124*sin260=790-122.1=667.9, y=280-124*cos260=280+21.5=301.5 -->
+  <polygon points="-6,-4 6,0 -6,4" fill="#40d0f0" opacity="0.8"
+           transform="translate(667.9, 301.5) rotate(260)"/>
+
+  <!-- "CW read direction" label (near θ=45° area) -->
+  <text x="930" y="195" font-size="10" fill="#40d0f0" font-style="italic">Read direction →</text>
+
+  <!-- Side annotations -->
+  <!-- Even/Odd bank note -->
+  <rect x="910" y="250" width="120" height="56" rx="4" fill="#0a2a3a" stroke="#3abadc40" stroke-width="1"/>
+  <text x="970" y="267" text-anchor="middle" font-size="10" fill="#3abadc" font-weight="bold">Even bank</text>
+  <text x="970" y="280" text-anchor="middle" font-size="9" fill="#6699aa" font-family="'Consolas', monospace">0x0000–0x1FFF</text>
+  <text x="970" y="295" text-anchor="middle" font-size="9" fill="#9966aa">Odd bank same</text>
+  <text x="970" y="305" text-anchor="middle" font-size="9" fill="#9966aa" font-family="'Consolas', monospace">0x2000–0x3FFF</text>
+
+  <!-- Scroll advance annotation -->
+  <!-- Small curved arrow near the CRTC start showing advancement -->
+  <!-- Arc from θ=-15° to θ=15° at R=134 -->
+  <!-- θ=-15°: x=790+134*sin(-15°)=790-34.7=755.3, y=280-134*cos(-15°)=280-129.4=150.6 -->
+  <!-- θ=20°: x=790+134*sin(20°)=790+45.8=835.8, y=280-134*cos(20°)=280-125.9=154.1 -->
+  <path d="M 760,152 A 134,134 0 0,1 832,155" stroke="#50dd80" stroke-width="2" fill="none"
+        marker-end="url(#arrowGreen)" stroke-dasharray="5,3"/>
+  <text x="848" y="154" font-size="9" fill="#50dd80" font-weight="bold">+80 bytes</text>
+  <text x="848" y="166" font-size="9" fill="#50dd80" font-style="italic">per scroll</text>
+
+  <!-- Color key -->
+  <rect x="558" y="400" width="12" height="12" rx="2" fill="#1a7aaa" stroke="#3abadc" stroke-width="1"/>
+  <text x="576" y="411" font-size="10" fill="#3abadc">Display area (7680B)</text>
+  <rect x="558" y="418" width="12" height="12" rx="2" fill="#d4a020" stroke="#ffe060" stroke-width="1"/>
+  <text x="576" y="429" font-size="10" fill="#e0a820">Write-ahead gap (512B)</text>
+  <circle cx="564" cy="442" r="5" fill="#50dd80"/>
+  <text x="576" y="446" font-size="10" fill="#50dd80">CRTC start → advances each scroll</text>
+
+  <!-- ================================================================ -->
+  <!-- BOTTOM PANEL: SCROLL DOWN OPERATION                              -->
+  <!-- ================================================================ -->
+  <rect x="45" y="468" width="1010" height="270" rx="6" fill="#0d1f35" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.95"/>
+
+  <!-- Panel title -->
+  <text x="380" y="495" text-anchor="middle" font-size="16" fill="#cccccc" font-weight="bold" letter-spacing="2">SCROLL DOWN: 2 ROWS PER STEP</text>
+  <line x1="100" y1="501" x2="660" y2="501" stroke="#ffffff30" stroke-width="1"/>
+  <text x="380" y="516" text-anchor="middle" font-size="11" fill="#888888" font-style="italic">All operations performed during VBlank — no flicker, no tearing</text>
+
+  <!-- === STEP 1: VSync Wait === -->
+  <rect x="68" y="535" width="100" height="54" rx="5" fill="#1a2a3a" stroke="#4488aa" stroke-width="1.5"/>
+  <text x="118" y="557" text-anchor="middle" font-size="12" fill="#4488aa" font-weight="bold">VSYNC</text>
+  <text x="118" y="572" text-anchor="middle" font-size="10" fill="#668899">WAIT</text>
+  <text x="118" y="600" text-anchor="middle" font-size="9" fill="#445566" font-family="'Consolas', monospace">Port 0x3DA</text>
+  <text x="118" y="612" text-anchor="middle" font-size="9" fill="#445566">bit 3 = 1</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="172" y1="562" x2="198" y2="562" stroke="#d4a020" stroke-width="2" marker-end="url(#arrowGold)"/>
+
+  <!-- === STEP 2: Write Even Row === -->
+  <rect x="202" y="535" width="130" height="54" rx="5" fill="#0d4a6a" stroke="#3abadc" stroke-width="1.5"/>
+  <text x="267" y="552" text-anchor="middle" font-size="10" fill="#88ccff" font-weight="bold">WRITE EVEN ROW</text>
+  <text x="267" y="568" text-anchor="middle" font-size="12" fill="#ffffff" font-weight="bold">80 bytes</text>
+  <text x="267" y="582" text-anchor="middle" font-size="9" fill="#6699aa">→ even bank gap</text>
+  <text x="267" y="604" text-anchor="middle" font-size="9" fill="#445566" font-family="'Consolas', monospace">REP MOVSW</text>
+  <text x="267" y="616" text-anchor="middle" font-size="9" fill="#445566">copy_row_wrapped</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="336" y1="562" x2="362" y2="562" stroke="#d4a020" stroke-width="2" marker-end="url(#arrowGold)"/>
+
+  <!-- === STEP 3: Write Odd Row === -->
+  <rect x="366" y="535" width="130" height="54" rx="5" fill="#4a1a6a" stroke="#9a6aca" stroke-width="1.5"/>
+  <text x="431" y="552" text-anchor="middle" font-size="10" fill="#ddaaff" font-weight="bold">WRITE ODD ROW</text>
+  <text x="431" y="568" text-anchor="middle" font-size="12" fill="#ffffff" font-weight="bold">80 bytes</text>
+  <text x="431" y="582" text-anchor="middle" font-size="9" fill="#9966aa">→ odd bank gap</text>
+  <text x="431" y="604" text-anchor="middle" font-size="9" fill="#445566" font-family="'Consolas', monospace">REP MOVSW</text>
+  <text x="431" y="616" text-anchor="middle" font-size="9" fill="#445566">copy_row_wrapped</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="500" y1="562" x2="526" y2="562" stroke="#d4a020" stroke-width="2" marker-end="url(#arrowGold)"/>
+
+  <!-- === STEP 4: Update CRTC R12/R13 === -->
+  <rect x="530" y="535" width="130" height="54" rx="5" fill="#1a5a3a" stroke="#50dd80" stroke-width="1.5"/>
+  <text x="595" y="552" text-anchor="middle" font-size="10" fill="#80ffa0" font-weight="bold">UPDATE CRTC</text>
+  <text x="595" y="568" text-anchor="middle" font-size="12" fill="#ffffff" font-weight="bold">R12 / R13</text>
+  <text x="595" y="582" text-anchor="middle" font-size="9" fill="#50dd80">start addr +80</text>
+  <text x="595" y="604" text-anchor="middle" font-size="9" fill="#445566" font-family="'Consolas', monospace">OUT DX, AX</text>
+  <text x="595" y="616" text-anchor="middle" font-size="9" fill="#445566">word-wide atomic</text>
+
+  <!-- Check mark / Done indicator -->
+  <line x1="664" y1="562" x2="685" y2="562" stroke="#d4a020" stroke-width="2" marker-end="url(#arrowGold)"/>
+  <text x="700" y="558" font-size="18" fill="#50dd80" font-weight="bold">✓</text>
+  <text x="700" y="576" font-size="10" fill="#50dd80">DONE</text>
+
+  <!-- Write destination formula -->
+  <rect x="68" y="636" width="660" height="22" rx="3" fill="#0a1a2a" stroke="#ffffff20" stroke-width="1"/>
+  <text x="398" y="652" text-anchor="middle" font-size="11" fill="#aaaaaa" font-family="'Consolas', monospace">
+    dest = (crtc_start + 7680) &amp; 0x1FFF    |    crtc_start = (crtc_start + 80) &amp; 0x1FFF
+  </text>
+
+  <!-- Wrap-around note -->
+  <text x="68" y="680" font-size="10" fill="#666666" font-style="italic">If 80-byte row crosses 8K boundary, copy_row_wrapped splits it into two parts. Always exactly 160 bytes total.</text>
+
+  <!-- === EFFICIENCY COMPARISON BOX === -->
+  <rect x="755" y="510" width="280" height="148" rx="6" fill="#0a2a1a" stroke="#50dd8060" stroke-width="2"/>
+  <text x="895" y="532" text-anchor="middle" font-size="14" fill="#ffffff" font-weight="bold" letter-spacing="1">EFFICIENCY</text>
+  <line x1="775" y1="538" x2="1015" y2="538" stroke="#50dd8040" stroke-width="1"/>
+
+  <!-- Old method bar (red/dim) -->
+  <text x="775" y="558" font-size="11" fill="#ff6666">Demo7b:</text>
+  <rect x="845" y="546" width="180" height="16" rx="3" fill="#ff4444" opacity="0.3" stroke="#ff444460" stroke-width="1"/>
+  <text x="935" y="559" text-anchor="middle" font-size="10" fill="#ff8888" font-weight="bold">15,360 bytes / scroll</text>
+
+  <!-- New method bar (green/bright) -->
+  <text x="775" y="580" font-size="11" fill="#50dd80">Demo8c:</text>
+  <rect x="845" y="568" width="2" height="16" rx="1" fill="#50dd80" stroke="#50dd80" stroke-width="1"/>
+  <text x="860" y="581" font-size="10" fill="#50dd80" font-weight="bold">160 bytes / scroll</text>
+
+  <!-- Speedup callout -->
+  <text x="895" y="608" text-anchor="middle" font-size="22" fill="#ffe060" font-weight="bold" filter="url(#glow)">96× FASTER</text>
+
+  <!-- Zero reloads badge -->
+  <rect x="830" y="622" width="130" height="24" rx="12" fill="#d4a020" opacity="0.2" stroke="#d4a020" stroke-width="1.5"/>
+  <text x="895" y="639" text-anchor="middle" font-size="12" fill="#ffe880" font-weight="bold">★ ZERO RELOADS</text>
+  <text x="895" y="653" text-anchor="middle" font-size="10" fill="#aa8833" font-style="italic">ever — no stuttering</text>
+
+  <!-- ================================================================ -->
+  <!-- SCROLL CONCEPT MINI-DIAGRAM                                      -->
+  <!-- ================================================================ -->
+  <!-- Small visual showing what "scroll" means: old row exits, new enters -->
+  <rect x="755" y="668" width="280" height="56" rx="4" fill="#0d1f35" stroke="#ffffff20" stroke-width="1"/>
+
+  <!-- Before arrow: show old top exits -->
+  <text x="775" y="684" font-size="9" fill="#ff6666">Old row 0–1</text>
+  <rect x="845" y="674" width="50" height="14" rx="2" fill="#ff4444" opacity="0.3"/>
+  <text x="870" y="685" text-anchor="middle" font-size="8" fill="#ff8888">exits top</text>
+  <text x="903" y="685" font-size="10" fill="#666666">→</text>
+  <text x="918" y="685" font-size="9" fill="#888888">overwritten</text>
+
+  <!-- After: new bottom enters -->
+  <text x="775" y="706" font-size="9" fill="#50dd80">New row N</text>
+  <rect x="845" y="696" width="50" height="14" rx="2" fill="#50dd80" opacity="0.3"/>
+  <text x="870" y="707" text-anchor="middle" font-size="8" fill="#50dd80">enters bot</text>
+  <text x="903" y="707" font-size="10" fill="#666666">→</text>
+  <text x="918" y="707" font-size="9" fill="#888888">written to gap</text>
+
+  <!-- ==================== FOOTER ==================== -->
+  <line x1="100" y1="750" x2="1000" y2="750" stroke="#d4a02030" stroke-width="1"/>
+  <text x="550" y="768" text-anchor="middle" font-size="11" fill="#555555">
+    Olivetti Prodest PC1 · Yamaha V6355D · NEC V40 @ 8 MHz · 160×192×16 Hidden Graphics Mode · True Circular Buffer
+  </text>
+  <text x="1070" y="768" text-anchor="end" font-size="10" fill="#d4a02080" font-style="italic">Illustration by RetroErik</text>
+
+</svg>
