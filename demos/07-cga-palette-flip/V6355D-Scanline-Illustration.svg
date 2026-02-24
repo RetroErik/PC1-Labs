@@ -1,0 +1,494 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 900" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <!-- === SHARED STYLE: Gold/Navy theme matching intro image & palette streaming === -->
+    <!-- Background texture gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1a3a5c"/>
+      <stop offset="100%" stop-color="#0a1a2e"/>
+    </radialGradient>
+    <!-- Gold gradient for borders -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d4a020"/>
+      <stop offset="30%" stop-color="#f0d060"/>
+      <stop offset="50%" stop-color="#ffe880"/>
+      <stop offset="70%" stop-color="#f0d060"/>
+      <stop offset="100%" stop-color="#d4a020"/>
+    </linearGradient>
+    <!-- Gold gradient for title bar -->
+    <linearGradient id="titleGold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#a07010"/>
+      <stop offset="20%" stop-color="#d4a020"/>
+      <stop offset="50%" stop-color="#ffe880"/>
+      <stop offset="80%" stop-color="#d4a020"/>
+      <stop offset="100%" stop-color="#a07010"/>
+    </linearGradient>
+    <!-- Beam arrow gradient -->
+    <linearGradient id="beamGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#d4a020"/>
+      <stop offset="100%" stop-color="#ffe880"/>
+    </linearGradient>
+    <!-- Grid pattern for background texture -->
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <rect width="20" height="20" fill="none"/>
+      <line x1="20" y1="0" x2="20" y2="20" stroke="#ffffff08" stroke-width="0.5"/>
+      <line x1="0" y1="20" x2="20" y2="20" stroke="#ffffff08" stroke-width="0.5"/>
+    </pattern>
+    <!-- Drop shadow filter -->
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#00000080"/>
+    </filter>
+    <!-- Glow for title -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowStrong" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowBeam" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feGaussianBlur stdDeviation="8" in="SourceGraphic" result="blur2"/>
+      <feMerge><feMergeNode in="blur2"/><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- Scanline overlay -->
+    <pattern id="scanlines" patternUnits="userSpaceOnUse" width="2" height="4">
+      <rect width="2" height="2" fill="rgba(0,0,0,0)"/>
+      <rect y="2" width="2" height="2" fill="rgba(0,0,0,0.15)"/>
+    </pattern>
+    <!-- CRT curvature gradient -->
+    <radialGradient id="crtVignette" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="rgba(0,0,0,0)"/>
+      <stop offset="85%" stop-color="rgba(0,0,0,0.15)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.5)"/>
+    </radialGradient>
+    <!-- Sunset gradient column -->
+    <linearGradient id="gradSunset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE066"/>
+      <stop offset="25%" stop-color="#FF9933"/>
+      <stop offset="50%" stop-color="#FF5522"/>
+      <stop offset="75%" stop-color="#CC2200"/>
+      <stop offset="100%" stop-color="#660011"/>
+    </linearGradient>
+    <!-- Rainbow gradient column -->
+    <linearGradient id="gradRainbow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF0000"/>
+      <stop offset="17%" stop-color="#FF8800"/>
+      <stop offset="33%" stop-color="#FFFF00"/>
+      <stop offset="50%" stop-color="#00CC00"/>
+      <stop offset="67%" stop-color="#0066FF"/>
+      <stop offset="83%" stop-color="#4400CC"/>
+      <stop offset="100%" stop-color="#8800AA"/>
+    </linearGradient>
+    <!-- Blue-purple gradient column -->
+    <linearGradient id="gradBluePurple" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#88CCFF"/>
+      <stop offset="25%" stop-color="#4488FF"/>
+      <stop offset="50%" stop-color="#6644DD"/>
+      <stop offset="75%" stop-color="#8822AA"/>
+      <stop offset="100%" stop-color="#440066"/>
+    </linearGradient>
+    <!-- Chip body gradient -->
+    <linearGradient id="chipGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2a2a2a"/>
+      <stop offset="50%" stop-color="#1a1a1a"/>
+      <stop offset="100%" stop-color="#222"/>
+    </linearGradient>
+    <!-- Monitor body gradient -->
+    <linearGradient id="monitorBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d4cfc0"/>
+      <stop offset="30%" stop-color="#c8c2b0"/>
+      <stop offset="100%" stop-color="#b0a890"/>
+    </linearGradient>
+    <!-- Arrow markers (gold theme) -->
+    <marker id="arrowGold" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d4a020"/>
+    </marker>
+    <marker id="arrowRight" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0,0 8,3 0,6" fill="#d4a020"/>
+    </marker>
+  </defs>
+
+  <!-- ==================== BACKGROUND ==================== -->
+  <rect width="1400" height="900" fill="url(#bgGrad)"/>
+  <rect width="1400" height="900" fill="url(#grid)"/>
+
+  <!-- ==================== OUTER GOLD BORDER ==================== -->
+  <rect x="15" y="15" width="1370" height="870" rx="8" ry="8"
+        fill="none" stroke="url(#goldGrad)" stroke-width="4"/>
+  <rect x="22" y="22" width="1356" height="856" rx="6" ry="6"
+        fill="none" stroke="#d4a02060" stroke-width="1"/>
+
+  <!-- Corner ornaments -->
+  <circle cx="15" cy="15" r="6" fill="#d4a020" opacity="0.6"/>
+  <circle cx="1385" cy="15" r="6" fill="#d4a020" opacity="0.6"/>
+  <circle cx="15" cy="885" r="6" fill="#d4a020" opacity="0.6"/>
+  <circle cx="1385" cy="885" r="6" fill="#d4a020" opacity="0.6"/>
+
+  <!-- ==================== TITLE BAR ==================== -->
+  <rect x="250" y="28" width="900" height="44" rx="4" fill="#0a1a2e" stroke="url(#titleGold)" stroke-width="2"/>
+  <text x="700" y="57" text-anchor="middle" font-size="24" font-weight="bold"
+        fill="url(#titleGold)" filter="url(#glow)" font-variant="small-caps"
+        letter-spacing="3">V6355D Scanline Register Loading — Split View</text>
+  <line x1="270" y1="68" x2="1130" y2="68" stroke="#d4a02040" stroke-width="1"/>
+
+  <!-- ============================================================ -->
+  <!-- === LEFT SIDE: SCANLINE CLOSE-UP === -->
+  <!-- ============================================================ -->
+
+  <!-- Left panel frame -->
+  <rect x="35" y="85" width="625" height="505" rx="6" fill="#0d1f35" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.95"/>
+
+  <text x="347" y="110" text-anchor="middle" font-size="16" fill="#cccccc" font-weight="bold" letter-spacing="2">SCANLINE CLOSE-UP</text>
+  <line x1="100" y1="116" x2="595" y2="116" stroke="#ffffff30" stroke-width="1"/>
+
+  <!-- Label: magnified view -->
+  <text x="347" y="134" text-anchor="middle" font-size="12" fill="#aaaaaa" font-style="italic">Two adjacent scanlines (magnified ~8×)</text>
+
+  <!-- === EVEN SCANLINE (upper) === -->
+  <text x="55" y="160" font-size="15" fill="#ffffff" font-weight="bold">EVEN</text>
+  <text x="55" y="174" font-size="10" fill="#aaaaaa">SCANLINE</text>
+  <text x="55" y="188" font-size="10" fill="#d4a020" font-style="italic">Palette 0</text>
+
+  <!-- Scanline bar background -->
+  <rect x="110" y="150" width="530" height="50" rx="5" fill="#0a1a2e" stroke="#444455" stroke-width="1.5"/>
+
+  <!-- Pixel 0 (E2) - already drawn - Sunset orange current -->
+  <rect x="118" y="155" width="52" height="40" rx="2" fill="#FF8833" opacity="0.95" filter="url(#glow)"/>
+  <rect x="118" y="155" width="52" height="40" fill="url(#scanlines)"/>
+  <text x="144" y="211" text-anchor="middle" fill="#e6a800" font-size="9" font-weight="bold">E2</text>
+  <text x="144" y="222" text-anchor="middle" fill="#888" font-size="8" font-style="italic">drawn</text>
+
+  <!-- Pixel 1 (E3) - already drawn - Sunset deep orange -->
+  <rect x="174" y="155" width="52" height="40" rx="2" fill="#FF5522" opacity="0.95" filter="url(#glow)"/>
+  <rect x="174" y="155" width="52" height="40" fill="url(#scanlines)"/>
+  <text x="200" y="211" text-anchor="middle" fill="#e05050" font-size="9" font-weight="bold">E3</text>
+  <text x="200" y="222" text-anchor="middle" fill="#888" font-size="8" font-style="italic">drawn</text>
+
+  <!-- Pixel 2 (E4) - already drawn - green (rainbow) -->
+  <rect x="230" y="155" width="52" height="40" rx="2" fill="#00CC44" opacity="0.95" filter="url(#glow)"/>
+  <rect x="230" y="155" width="52" height="40" fill="url(#scanlines)"/>
+  <text x="256" y="211" text-anchor="middle" fill="#3080d0" font-size="9" font-weight="bold">E4</text>
+  <text x="256" y="222" text-anchor="middle" fill="#888" font-size="8" font-style="italic">drawn</text>
+
+  <!-- ELECTRON BEAM position -->
+  <line x1="288" y1="145" x2="288" y2="205" stroke="#ffe880" stroke-width="3" filter="url(#glowBeam)" opacity="0.9"/>
+  <circle cx="288" cy="175" r="7" fill="#ffe880" filter="url(#glowBeam)" opacity="0.8"/>
+  <text x="288" y="237" text-anchor="middle" fill="#ffe880" font-size="10" font-weight="bold" filter="url(#glow)">▼ BEAM</text>
+
+  <!-- Pixel 3 (E5) - ahead of beam - pending -->
+  <rect x="296" y="155" width="52" height="40" rx="2" fill="#0d1f35" stroke="#d4a02040" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="322" y="211" text-anchor="middle" fill="#9040b0" font-size="9" font-weight="bold">E5</text>
+  <text x="322" y="222" text-anchor="middle" fill="#556" font-size="8" font-style="italic">pending</text>
+
+  <!-- Pixel 4 (E6) - pending -->
+  <rect x="352" y="155" width="52" height="40" rx="2" fill="#0d1f35" stroke="#d4a02040" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="378" y="211" text-anchor="middle" fill="#20a060" font-size="9" font-weight="bold">E6</text>
+  <text x="378" y="222" text-anchor="middle" fill="#556" font-size="8" font-style="italic">pending</text>
+
+  <!-- Pixel 5 (E7) - pending -->
+  <rect x="408" y="155" width="52" height="40" rx="2" fill="#0d1f35" stroke="#d4a02040" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="434" y="211" text-anchor="middle" fill="#d06820" font-size="9" font-weight="bold">E7</text>
+  <text x="434" y="222" text-anchor="middle" fill="#556" font-size="8" font-style="italic">pending</text>
+
+  <!-- Scan direction arrow (gold) -->
+  <line x1="130" y1="145" x2="440" y2="145" stroke="url(#beamGrad)" stroke-width="1.5" marker-end="url(#arrowGold)"/>
+  <text x="480" y="149" fill="#d4a020" font-size="10" opacity="0.7">scan direction →</text>
+
+  <!-- === ODD SCANLINE (lower, adjacent) === -->
+  <text x="55" y="270" font-size="15" fill="#ffffff" font-weight="bold">ODD</text>
+  <text x="55" y="284" font-size="10" fill="#aaaaaa">SCANLINE</text>
+  <text x="55" y="298" font-size="10" fill="#d4a020" font-style="italic">Palette 1</text>
+
+  <!-- Scanline bar background -->
+  <rect x="110" y="260" width="530" height="50" rx="5" fill="#0a1a2e" stroke="#444455" stroke-width="1.5"/>
+
+  <!-- Pixel 0 (E2) drawn -->
+  <rect x="118" y="265" width="52" height="40" rx="2" fill="#FF9933" opacity="0.9" filter="url(#glow)"/>
+  <rect x="118" y="265" width="52" height="40" fill="url(#scanlines)"/>
+
+  <!-- Pixel 1 (E3) drawn -->
+  <rect x="174" y="265" width="52" height="40" rx="2" fill="#FF6633" opacity="0.9" filter="url(#glow)"/>
+  <rect x="174" y="265" width="52" height="40" fill="url(#scanlines)"/>
+
+  <!-- Pixel 2 (E4) drawn -->
+  <rect x="230" y="265" width="52" height="40" rx="2" fill="#00BB33" opacity="0.9" filter="url(#glow)"/>
+  <rect x="230" y="265" width="52" height="40" fill="url(#scanlines)"/>
+
+  <!-- Beam position on odd scanline -->
+  <line x1="288" y1="255" x2="288" y2="315" stroke="#ffe880" stroke-width="2" filter="url(#glowBeam)" opacity="0.5"/>
+
+  <!-- Pending pixels -->
+  <rect x="296" y="265" width="52" height="40" rx="2" fill="#0d1f35" stroke="#d4a02040" stroke-width="1" stroke-dasharray="3,2"/>
+  <rect x="352" y="265" width="52" height="40" rx="2" fill="#0d1f35" stroke="#d4a02040" stroke-width="1" stroke-dasharray="3,2"/>
+  <rect x="408" y="265" width="52" height="40" rx="2" fill="#0d1f35" stroke="#d4a02040" stroke-width="1" stroke-dasharray="3,2"/>
+
+  <!-- "FLIP EVERY SCANLINE" annotation between scanlines (matches intro image!) -->
+  <g transform="translate(490, 230)">
+    <rect x="0" y="0" width="150" height="24" rx="4" fill="#d4a020" stroke="#a07010" stroke-width="1.5"/>
+    <text x="75" y="17" text-anchor="middle" font-size="12" fill="#0a1a2e" font-weight="bold" letter-spacing="1">FLIP EVERY LINE</text>
+  </g>
+  <path d="M540,226 L540,205 Q540,200 535,200 L470,200" fill="none" stroke="#d4a020" stroke-width="1.5"/>
+  <path d="M540,258 L540,280 Q540,285 535,285 L470,285" fill="none" stroke="#d4a020" stroke-width="1.5"/>
+
+  <!-- === DATA PACKETS FLOWING INTO CHIP === -->
+  <text x="347" y="348" text-anchor="middle" font-size="14" fill="url(#titleGold)" font-weight="bold" filter="url(#glow)" letter-spacing="1">DATA PACKETS → V6355D</text>
+
+  <!-- The six data packets — color-coded to match palette streaming SVG register colors -->
+  <!-- E2 packet - CURRENT -->
+  <g transform="translate(55, 365)">
+    <rect width="72" height="36" rx="4" fill="#e6a800" stroke="#b38600" stroke-width="1.5" filter="url(#glow)"/>
+    <text x="36" y="16" text-anchor="middle" fill="#000" font-size="12" font-weight="bold">E2</text>
+    <text x="36" y="30" text-anchor="middle" fill="#332200" font-size="9" font-weight="bold">CURR</text>
+  </g>
+
+  <!-- E3 packet - UPCOMING -->
+  <g transform="translate(137, 365)">
+    <rect width="72" height="36" rx="4" fill="#50ff80" stroke="#30cc60" stroke-width="2" filter="url(#glowStrong)"/>
+    <text x="36" y="16" text-anchor="middle" fill="#003300" font-size="12" font-weight="bold">E3</text>
+    <text x="36" y="30" text-anchor="middle" fill="#004400" font-size="9" font-weight="bold">NEXT</text>
+  </g>
+
+  <!-- E4 packet - CURRENT -->
+  <g transform="translate(219, 365)">
+    <rect width="72" height="36" rx="4" fill="#e6a800" stroke="#b38600" stroke-width="1.5" filter="url(#glow)"/>
+    <text x="36" y="16" text-anchor="middle" fill="#000" font-size="12" font-weight="bold">E4</text>
+    <text x="36" y="30" text-anchor="middle" fill="#332200" font-size="9" font-weight="bold">CURR</text>
+  </g>
+
+  <!-- E5 packet - UPCOMING -->
+  <g transform="translate(301, 365)">
+    <rect width="72" height="36" rx="4" fill="#50ff80" stroke="#30cc60" stroke-width="2" filter="url(#glowStrong)"/>
+    <text x="36" y="16" text-anchor="middle" fill="#003300" font-size="12" font-weight="bold">E5</text>
+    <text x="36" y="30" text-anchor="middle" fill="#004400" font-size="9" font-weight="bold">NEXT</text>
+  </g>
+
+  <!-- E6 packet - CURRENT -->
+  <g transform="translate(383, 365)">
+    <rect width="72" height="36" rx="4" fill="#e6a800" stroke="#b38600" stroke-width="1.5" filter="url(#glow)"/>
+    <text x="36" y="16" text-anchor="middle" fill="#000" font-size="12" font-weight="bold">E6</text>
+    <text x="36" y="30" text-anchor="middle" fill="#332200" font-size="9" font-weight="bold">CURR</text>
+  </g>
+
+  <!-- E7 packet - UPCOMING -->
+  <g transform="translate(465, 365)">
+    <rect width="72" height="36" rx="4" fill="#50ff80" stroke="#30cc60" stroke-width="2" filter="url(#glowStrong)"/>
+    <text x="36" y="16" text-anchor="middle" fill="#003300" font-size="12" font-weight="bold">E7</text>
+    <text x="36" y="30" text-anchor="middle" fill="#004400" font-size="9" font-weight="bold">NEXT</text>
+  </g>
+
+  <!-- Flow arrows from packets to chip (gold) -->
+  <g stroke="#d4a020" stroke-width="1.5" fill="none" opacity="0.5">
+    <path d="M91,405 L91,430 Q91,440 101,440 L260,440" stroke-dasharray="4,3"/>
+    <path d="M173,405 L173,425 Q173,435 183,435 L260,435" stroke-dasharray="4,3"/>
+    <path d="M255,405 L255,445" stroke-dasharray="4,3"/>
+    <path d="M337,405 L337,430 Q337,440 347,440 L400,440" stroke-dasharray="4,3"/>
+    <path d="M419,405 L419,445" stroke-dasharray="4,3"/>
+    <path d="M501,405 L501,430 Q501,440 491,440 L460,440" stroke-dasharray="4,3"/>
+  </g>
+
+  <!-- === V6355D CHIP === -->
+  <g transform="translate(190, 448)">
+    <!-- Chip body -->
+    <rect width="280" height="75" rx="3" fill="url(#chipGrad)" stroke="#d4a020" stroke-width="2"/>
+    <!-- Chip pins left -->
+    <rect x="-8" y="8" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="-8" y="20" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="-8" y="32" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="-8" y="44" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="-8" y="56" width="10" height="6" fill="#d4a020" rx="1"/>
+    <!-- Chip pins right -->
+    <rect x="278" y="8" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="278" y="20" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="278" y="32" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="278" y="44" width="10" height="6" fill="#d4a020" rx="1"/>
+    <rect x="278" y="56" width="10" height="6" fill="#d4a020" rx="1"/>
+    <!-- Chip pins top -->
+    <rect x="40" y="-8" width="6" height="10" fill="#d4a020" rx="1"/>
+    <rect x="70" y="-8" width="6" height="10" fill="#d4a020" rx="1"/>
+    <rect x="100" y="-8" width="6" height="10" fill="#d4a020" rx="1"/>
+    <rect x="130" y="-8" width="6" height="10" fill="#d4a020" rx="1"/>
+    <rect x="160" y="-8" width="6" height="10" fill="#d4a020" rx="1"/>
+    <rect x="200" y="-8" width="6" height="10" fill="#d4a020" rx="1"/>
+    <rect x="230" y="-8" width="6" height="10" fill="#d4a020" rx="1"/>
+    <!-- Chip label -->
+    <text x="140" y="32" text-anchor="middle" fill="url(#titleGold)" font-size="18" font-weight="bold" filter="url(#glow)" letter-spacing="2">V6355D</text>
+    <text x="140" y="48" text-anchor="middle" fill="#d4a020" font-size="10" letter-spacing="1" opacity="0.8">VIDEO GATE ARRAY</text>
+    <!-- Pin 1 dot -->
+    <circle cx="15" cy="10" r="4" fill="none" stroke="#666" stroke-width="1"/>
+    <!-- Notch -->
+    <path d="M130,0 Q140,-6 150,0" fill="none" stroke="#555" stroke-width="1.5"/>
+  </g>
+
+  <!-- Legend for current vs upcoming — matching palette streaming SVG colors -->
+  <g transform="translate(55, 543)">
+    <rect width="14" height="14" rx="2" fill="#e6a800" stroke="#b38600" stroke-width="1"/>
+    <text x="20" y="12" fill="#e6a800" font-size="11" font-weight="bold">Current</text>
+    <text x="80" y="12" fill="#aaaaaa" font-size="11">— this even line's colors (Palette 0) — column order matters</text>
+  </g>
+  <g transform="translate(55, 565)">
+    <rect width="14" height="14" rx="2" fill="#50ff80" stroke="#30cc60" stroke-width="1.5" filter="url(#glow)"/>
+    <text x="20" y="12" fill="#50ff80" font-size="11" font-weight="bold">Upcoming</text>
+    <text x="95" y="12" fill="#aaaaaa" font-size="11">— next odd line's colors (Palette 1) — safe in any column</text>
+  </g>
+
+
+  <!-- ============================================================ -->
+  <!-- === DIVIDER === -->
+  <!-- ============================================================ -->
+  <line x1="680" y1="85" x2="680" y2="590" stroke="url(#goldGrad)" stroke-width="1.5" stroke-dasharray="8,4" opacity="0.4"/>
+
+
+  <!-- ============================================================ -->
+  <!-- === RIGHT SIDE: FULL SCREEN RESULT === -->
+  <!-- ============================================================ -->
+
+  <!-- Right panel frame -->
+  <rect x="700" y="85" width="670" height="505" rx="6" fill="#0d1f35" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.95"/>
+
+  <text x="1035" y="110" text-anchor="middle" font-size="16" fill="#cccccc" font-weight="bold" letter-spacing="2">FULL SCREEN RESULT</text>
+  <line x1="780" y1="116" x2="1290" y2="116" stroke="#ffffff30" stroke-width="1"/>
+
+  <!-- === CRT MONITOR HOUSING === -->
+  <!-- Monitor outer shell -->
+  <rect x="820" y="128" width="430" height="355" rx="20" fill="url(#monitorBody)" stroke="#8a8470" stroke-width="2"/>
+  <!-- Monitor inner bezel -->
+  <rect x="838" y="142" width="394" height="310" rx="12" fill="#222" stroke="#444" stroke-width="2"/>
+  <!-- Screen area -->
+  <rect x="852" y="155" width="366" height="282" rx="6" fill="#000"/>
+
+  <!-- === THREE GRADIENT COLUMNS === -->
+  <!-- Sunset Orange Column -->
+  <rect x="873" y="166" width="80" height="260" rx="2" fill="url(#gradSunset)" filter="url(#glow)"/>
+  <rect x="873" y="166" width="80" height="260" fill="url(#scanlines)" opacity="0.5"/>
+
+  <!-- Rainbow Column -->
+  <rect x="995" y="166" width="80" height="260" rx="2" fill="url(#gradRainbow)" filter="url(#glow)"/>
+  <rect x="995" y="166" width="80" height="260" fill="url(#scanlines)" opacity="0.5"/>
+
+  <!-- Blue-Purple Column -->
+  <rect x="1117" y="166" width="80" height="260" rx="2" fill="url(#gradBluePurple)" filter="url(#glow)"/>
+  <rect x="1117" y="166" width="80" height="260" fill="url(#scanlines)" opacity="0.5"/>
+
+  <!-- CRT curvature/vignette overlay -->
+  <rect x="852" y="155" width="366" height="282" rx="6" fill="url(#crtVignette)"/>
+
+  <!-- Screen reflection highlight -->
+  <ellipse cx="910" cy="195" rx="60" ry="30" fill="rgba(255,255,255,0.03)"/>
+
+  <!-- Column labels below monitor -->
+  <text x="913" y="465" text-anchor="middle" fill="#FF8833" font-size="11" font-weight="bold">SUNSET</text>
+  <text x="1035" y="465" text-anchor="middle" fill="#00CC44" font-size="11" font-weight="bold">RAINBOW</text>
+  <text x="1157" y="465" text-anchor="middle" fill="#6688FF" font-size="11" font-weight="bold">BLUE-PURPLE</text>
+
+  <!-- Monitor brand label -->
+  <text x="1035" y="496" text-anchor="middle" fill="#8a8470" font-size="12" font-weight="bold" letter-spacing="3">OLIVETTI</text>
+
+  <!-- Monitor base/stand -->
+  <path d="M960,498 L945,528 L1125,528 L1110,498" fill="#c0b8a0" stroke="#8a8470" stroke-width="1.5"/>
+  <rect x="935" y="528" width="200" height="10" rx="3" fill="#b0a890" stroke="#8a8470" stroke-width="1"/>
+
+  <!-- Annotation: even/odd lines on the monitor -->
+  <g transform="translate(1230, 170)">
+    <line x1="0" y1="0" x2="0" y2="40" stroke="#e6a800" stroke-width="2"/>
+    <text x="8" y="10" fill="#e6a800" font-size="10" font-weight="bold">Even</text>
+    <text x="8" y="22" fill="#aaa" font-size="9">Palette 0</text>
+    <line x1="0" y1="50" x2="0" y2="90" stroke="#50ff80" stroke-width="2"/>
+    <text x="8" y="60" fill="#50ff80" font-size="10" font-weight="bold">Odd</text>
+    <text x="8" y="72" fill="#aaa" font-size="9">Palette 1</text>
+    <text x="8" y="105" fill="#d4a020" font-size="9" font-style="italic">alternating</text>
+    <text x="8" y="117" fill="#d4a020" font-size="9" font-style="italic">every line</text>
+  </g>
+
+  <!-- "More Colors!" sparkle annotation matching intro image -->
+  <g transform="translate(1240, 400)">
+    <text x="0" y="0" fill="#ffe880" font-size="14" font-weight="bold" filter="url(#glow)">⚡ More Colors!</text>
+    <text x="0" y="18" fill="#aaaaaa" font-size="10" font-style="italic">Pushes CGA beyond</text>
+    <text x="0" y="32" fill="#aaaaaa" font-size="10" font-style="italic">its limits</text>
+    <!-- Sparkles -->
+    <text x="-12" y="-10" fill="#ffe880" font-size="16" opacity="0.7">✦</text>
+    <text x="120" y="5" fill="#ffe880" font-size="12" opacity="0.5">✦</text>
+  </g>
+
+
+  <!-- ============================================================ -->
+  <!-- === BOTTOM PANEL: HOW IT WORKS === -->
+  <!-- ============================================================ -->
+  <rect x="35" y="605" width="1335" height="270" rx="6" fill="#0d1f35" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.95"/>
+
+  <text x="700" y="633" text-anchor="middle" font-size="18" font-weight="bold"
+        fill="url(#titleGold)" filter="url(#glow)" font-variant="small-caps" letter-spacing="2">How It Works</text>
+  <line x1="100" y1="642" x2="1300" y2="642" stroke="#d4a02040" stroke-width="1"/>
+
+  <!-- Step 1 -->
+  <g transform="translate(70, 658)">
+    <circle cx="14" cy="14" r="14" fill="none" stroke="#d4a020" stroke-width="2"/>
+    <text x="14" y="19" text-anchor="middle" fill="#ffe880" font-size="16" font-weight="bold">1</text>
+    <text x="40" y="10" fill="#ffffff" font-size="13" font-weight="bold">CPU writes palette registers E2–E7 during HBLANK</text>
+    <text x="40" y="28" fill="#aaaaaa" font-size="11" font-style="italic">Deferred open/close: session stays open across visible area</text>
+  </g>
+
+  <!-- Step 2 -->
+  <g transform="translate(70, 708)">
+    <circle cx="14" cy="14" r="14" fill="none" stroke="#d4a020" stroke-width="2"/>
+    <text x="14" y="19" text-anchor="middle" fill="#ffe880" font-size="16" font-weight="bold">2</text>
+    <text x="40" y="10" fill="#ffffff" font-size="13" font-weight="bold">V6355D receives 6 data packets per even scanline</text>
+    <text x="40" y="28" fill="#aaaaaa" font-size="11">
+      <tspan fill="#e6a800" font-weight="bold">3 current</tspan> (this line) +
+      <tspan fill="#50ff80" font-weight="bold">3 upcoming</tspan> (next line) · 13 OUTs · ~119 cycles
+    </text>
+  </g>
+
+  <!-- Step 3 -->
+  <g transform="translate(70, 758)">
+    <circle cx="14" cy="14" r="14" fill="none" stroke="#d4a020" stroke-width="2"/>
+    <text x="14" y="19" text-anchor="middle" fill="#ffe880" font-size="16" font-weight="bold">3</text>
+    <text x="40" y="10" fill="#ffffff" font-size="13" font-weight="bold">Odd scanline: FLIP · CLOSE · OPEN (3 OUTs · ~37 cycles)</text>
+    <text x="40" y="28" fill="#aaaaaa" font-size="11" font-style="italic">Reset write pointer to E2, switch active palette, all within HBLANK</text>
+  </g>
+
+  <!-- Step 4 -->
+  <g transform="translate(70, 808)">
+    <circle cx="14" cy="14" r="14" fill="none" stroke="#d4a020" stroke-width="2"/>
+    <text x="14" y="19" text-anchor="middle" fill="#ffe880" font-size="16" font-weight="bold">4</text>
+    <text x="40" y="10" fill="#ffffff" font-size="13" font-weight="bold">Electron beam draws pixels using updated palette</text>
+    <text x="40" y="28" fill="#aaaaaa" font-size="11" font-style="italic">Each scanline shifts colors slightly → smooth vertical gradient columns</text>
+  </g>
+
+  <!-- Stats panel on right -->
+  <g transform="translate(780, 660)">
+    <rect width="530" height="185" rx="4" fill="#0a1a2e" stroke="#d4a02060" stroke-width="1"/>
+
+    <text x="20" y="22" fill="#666" font-size="11">Registers per even scanline:</text>
+    <text x="230" y="22" fill="#ffe880" font-size="11" font-weight="bold">6 (E2–E7) via OUTSB ×12</text>
+
+    <text x="20" y="46" fill="#666" font-size="11">Current (this line):</text>
+    <rect x="230" y="34" width="10" height="10" rx="1" fill="#e6a800"/>
+    <text x="246" y="46" fill="#e6a800" font-size="11" font-weight="bold">E2, E4, E6 — column order matters</text>
+
+    <text x="20" y="70" fill="#666" font-size="11">Upcoming (next line):</text>
+    <rect x="230" y="58" width="10" height="10" rx="1" fill="#50ff80"/>
+    <text x="246" y="70" fill="#50ff80" font-size="11" font-weight="bold">E3, E5, E7 — safe in any column</text>
+
+    <text x="20" y="94" fill="#666" font-size="11">Odd scanline overhead:</text>
+    <text x="230" y="94" fill="#ffffff" font-size="11" font-weight="bold">3 OUTs (FLIP+CLOSE+OPEN)</text>
+
+    <text x="20" y="118" fill="#666" font-size="11">Result:</text>
+    <text x="230" y="118" fill="#ffffff" font-size="11" font-weight="bold">3 smooth gradient columns</text>
+
+    <line x1="20" y1="130" x2="510" y2="130" stroke="#d4a02030" stroke-width="1"/>
+
+    <text x="20" y="150" fill="#666" font-size="11">Video chip:</text>
+    <text x="230" y="150" fill="#d4a020" font-size="11" font-weight="bold">Yamaha V6355D Gate Array</text>
+
+    <text x="20" y="172" fill="#666" font-size="11">Technique:</text>
+    <text x="230" y="172" fill="#d4a020" font-size="11" font-weight="bold">Per-scanline palette streaming</text>
+  </g>
+
+  <!-- ==================== FOOTER ==================== -->
+  <line x1="100" y1="882" x2="1300" y2="882" stroke="#d4a02030" stroke-width="1"/>
+  <text x="700" y="892" text-anchor="middle" font-size="11" fill="#555555">
+    Olivetti Prodest PC1 · Yamaha V6355D · NEC V40 @ 8 MHz · CGA Mode 4 · Deferred Open/Close Pattern
+  </text>
+  <text x="1370" y="892" text-anchor="end" font-size="10" fill="#d4a02080" font-style="italic">Illustration by Retro Erik</text>
+</svg>
