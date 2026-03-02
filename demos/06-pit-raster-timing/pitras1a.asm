@@ -1,8 +1,13 @@
 ; ============================================================================
-; PITRAS1.asm - PIT Interrupt Raster Timing (Method 3)
+; PITRAS1A.asm - PIT Interrupt Raster Timing (Method 3) — Naive Version
 ; ============================================================================
 ;
 ; EDUCATIONAL DEMONSTRATION: PIT-Timed Scanline Updates
+;
+; This was the FIRST attempt at PIT-driven raster bars. It works, but has
+; visible flicker because it re-syncs the PIT every frame and wastes cycles
+; reloading DS in the ISR. See PITRAS1B.asm for the improved phase-locked
+; version that eliminates nearly all jitter.
 ;
 ; This method replaces HSYNC polling with PIT-driven IRQ0 timing. Instead of
 ; busy-waiting on the status port, we schedule a timer interrupt for each
@@ -17,9 +22,16 @@
 ;   5. After 200 scanlines, we stop and wait for next frame
 ;   6. On exit, restore original PIT and IRQ0 vector
 ;
+; LIMITATIONS (fixed in PITRAS1B):
+;   - Re-installs PIT + ISR every frame → sync jitter each time
+;   - Loads DS inside ISR → wastes ~12 cycles
+;   - Uses memory variables via DS → slower than CS-relative
+;   - No HBLANK edge sync before starting PIT
+;   - Assumed 8 MHz CPU (actually 7.159 MHz = 14.318/2)
+;
 ; Written for NASM assembler
 ; Target: Olivetti Prodest PC1 with Yamaha V6355D video controller
-; CPU: NEC V40 (80186 compatible) @ 8 MHz
+; CPU: NEC V40 @ 7.159 MHz (14.31818 / 2)
 ;
 ; By Retro Erik - 2026
 
@@ -68,6 +80,9 @@
 ;   - PIT mode: Much less jitter in the middle/right of screen
 ;   - PIT mode: Slightly more jitter in left border area
 ;   - Overall: PIT timing is a SUCCESS - visibly smoother raster bars
+;
+; However, per-frame re-sync causes visible flicker on every line.
+; See PITRAS1B.asm for the phase-locked solution (99%+ stable).
 ;
 ; ============================================================================
 

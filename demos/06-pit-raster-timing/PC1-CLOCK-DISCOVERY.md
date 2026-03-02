@@ -92,12 +92,13 @@ The VBLANK vs active display tests show **identical timings** (100% ratio). This
 - Code executing from system RAM runs at full speed regardless of beam position
 - NOP delay loops in cycle-counted raster code are **deterministic**
 
-### 4. PAL Timing: 312-313 Scanlines Per Frame
+### 4. PAL Timing: 314 Scanlines Per Frame (Confirmed)
 
 - 50 Hz vertical refresh (PAL standard)
-- ~76 PIT ticks per scanline = 63.7 µs (standard CGA horizontal timing)
-- 200 visible lines + ~112 blank lines = 312 total
-- VBLANK duration: ~112 scanlines × 63.7 µs ≈ 7.1 ms
+- 76 PIT ticks per scanline = 63.7 µs exactly (912 pixel clocks ÷ 12 = 76.0)
+- 200 visible lines + 114 blank lines = **314 total** (confirmed by pitras1b — 313 causes visible upward drift, 315 drifts down)
+- VBLANK duration: 114 scanlines × 63.7 µs ≈ 7.3 ms
+- Frame rate: 14,318,180 / 912 / 314 ≈ 50.0 Hz
 
 ## Implications for Beam Racing
 
@@ -145,6 +146,69 @@ The key difference: on the IBM PC, DRAM refresh (via PIT channel 1 and DMA) stea
     │
     └── ÷ 12 → 1.193 MHz PIT clock
 ```
+
+## Expert Verification: Simon's Response
+
+After sharing these findings with Simon (original PC1 designer), he confirmed:
+
+### Clock Architecture Confirmation
+
+> "You are absolutely right, the system clock is taken from 14.318 MHz generated from V6355D, but only in the 1987 PC1, instead the PC1-HD version has his own clock/crystal."
+
+**Key takeaways:**
+- The **1987 PC1** uses the V6355D's DCK output for CPU clock generation (as measured)
+- The **PC1-HD** has a separate clock/crystal (different architecture)
+- Our measurements and conclusions apply specifically to the standard PC1 (1987)
+
+### Wait States Clarification
+
+> "The wait states added on the VRAM are for leaving time to V6355D to read bytes to display without 'snow' effect. All other wait states can be reduced to zero from my tests."
+
+**Key takeaways:**
+- VRAM wait states (B000h segment) prevent snow during V6355D framebuffer reads
+- System RAM wait states could potentially be eliminated (hardware modification?)
+- This confirms our measurement: no bus contention detected on system RAM
+
+### Timing Synchronization Opportunities
+
+> "Then you think that in PC1 (non HD) you can adjust perfect cycle timing (no drift) to use the system timer/tick for making some change only when in VSYNC or HSYNC without using all the processor power..."
+
+**Key takeaways:**
+- Phase-locked clocks enable **drift-free synchronization** to VSYNC/HSYNC using PIT interrupts
+- Instead of tight polling loops, effects could trigger on timer ticks aligned to scanlines
+- This would leave CPU time free for other processing (music, game logic, etc.)
+- Possible to schedule palette changes or register updates to occur exactly at blanking intervals
+
+### Performance Notes
+
+> "Yes 8MHz was barely an approximation, derived also from help of the NEC V40 that can get and execute instruction faster than an 8086"
+
+**Key takeaways:**
+- The "8 MHz" spec was marketing approximation of 7.159 MHz
+- NEC V40 executes some instructions faster than 8086 (fewer clock cycles)
+- Effective throughput may approach 8 MHz despite actual clock speed being 7.16 MHz
+
+### Palette Change Timing Challenge
+
+> "136 cycled of blanking/Hsync is really a lot... and we can barely change 3 colors palette... using 6 OUT's... they are really slow... but V40 has also REP OUTS, maybe..."
+
+**Key takeaways:**
+- Horizontal blanking = **136 CPU cycles @ 7.16 MHz**
+- Each palette color change = 2 OUT instructions (address + data to ports 0xDD/0xDE)
+- 6 OUTs can change ~3 colors during HSYNC
+- OUT instructions are slow on V40
+- **REP OUTS** instruction possible optimization for bulk palette updates
+  - Could load palette values to memory, use DI/SI with OUTS
+  - Potentially faster than individual OUT instructions
+  - Needs testing to verify timing on V6355D palette ports
+
+### Implications
+
+1. **PIT-driven effects**: Use Mode 2 or Mode 3 PIT interrupts aligned to scanline timing (76 PIT ticks = 1 scanline) for zero-CPU-overhead synchronization
+
+2. **REP OUTS exploration**: Test whether `REP OUTSB`/`REP OUTSW` can accelerate palette updates during blanking
+
+3. **Architecture variance**: Document differences between 1987 PC1 and PC1-HD for portability
 
 ## Files
 

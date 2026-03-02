@@ -6,17 +6,21 @@ Demonstrations of **PIT (Programmable Interval Timer) based scanline timing** on
 
 This folder tests using **PIT interrupts** instead of **HSYNC polling** for per-scanline palette updates. The PIT method provides smoother, more consistent timing.
 
+**Measurement tool:** `pitclk.asm` (now in [PC1-Labs/Tools/](../../Tools/)) — proved CPU, PIT, and pixel clocks are all phase-locked from the same 14.31818 MHz crystal. See [PC1-CLOCK-DISCOVERY.md](PC1-CLOCK-DISCOVERY.md) for full analysis.
+
 | Demo | Technique | Status |
 |------|-----------|--------|
-| pitras1 | PIT interrupt, 1 color/scanline | ✅ WORKS |
-| pitras2 | PIT interrupt, multi-entry/scanline | ✅ WORKS |
-| pitras3 | PIT interrupt, mid-scanline color split | ✅ WORKS (with jitter) |
-| pitras4 | Cycle-counted loop, no ISR (8088MPH style) | 🧪 EXPERIMENT |
-| pitras5 | HSYNC-synced cycle-counted + deferred palette | 🧪 EXPERIMENT |
+| pitras1a | PIT interrupt, per-frame re-sync (naive) | ✅ WORKS (flickery) |
+| pitras1b | PIT interrupt, phase-locked free-running | ✅ **CONFIRMED 99%+ STABLE** |
+| pitras1c | pitras1b synced to active display edge | ✅ WORKS (more jitter, proves mid-display writes OK) |
+| pitras1d | Half-scanline PIT (count=38), two colors/scanline | ❌ CRASHES |
+| pitras2 | Animated rainbow scroll (pitras1b + scrolling offset) | 📋 PLANNED |
+| pitras3 | Sinusoidal color gradient (sine table + animation) | 📋 PLANNED — needs sine table research |
+| pitras4 | Copper bars / rainbow serpents (bouncing color bands) | 📋 PLANNED — needs gradient stamping research |
 
-**Key Finding:** PIT interrupts provide smoother raster effects than HSYNC polling, especially in the center and right portions of the screen. Mid-scanline palette changes are possible but jitter ~4-8 pixels due to V6355D bus contention.
+**Key Finding:** PIT and scanlines are **phase-locked** from the same 14.31818 MHz crystal — zero drift, ever. PIT count 76 and frame total 314 are both confirmed exact on real hardware. pitras1b achieves 99%+ stable raster bars with a one-time PIT setup that free-runs forever.
 
-**Goal of pitras4/5:** Achieve **pixel-precise** mid-scanline color changes by eliminating ISR overhead jitter. Inspired by reenigne's 8088 MPH cycle-counting techniques.
+**Mid-scanline conclusion:** Changing palette TWICE per scanline remains unsolved. pitras3 does not work. pitras1d (half-scanline PIT at count=38) crashes. Reading PORT_STATUS between palette writes causes V6355D blinking. NOP-only delays inherit ISR entry jitter. Future work focuses on **maximizing the proven one-change-per-scanline** approach.
 
 ## Related Work
 
@@ -28,7 +32,7 @@ For mid-scanline experiments (changing color WITHIN the visible scanline), see *
 ## Hardware Target
 
 - **Machine:** Olivetti Prodest PC1
-- **CPU:** NEC V40 (80186 compatible) @ 8 MHz
+- **CPU:** NEC V40 @ 7.159 MHz (14.31818 / 2)
 - **Video Controller:** Yamaha V6355D
 - **Timer:** Intel 8253/8254 PIT (Programmable Interval Timer)
 
@@ -66,13 +70,15 @@ out 0x40, al
 | PIT Clock | 1,193,182 Hz | 14.31818 MHz ÷ 12 |
 | PIT Tick | ~0.838 µs | 1 / 1,193,182 |
 | Scanline Duration | ~63.5 µs | CGA horizontal timing |
-| **PIT Count/Scanline** | **76 ticks** | 63.5 / 0.838 ≈ 76 |
+| **PIT Count/Scanline** | **76 ticks** | 912 / 12 = 76.0 EXACTLY (confirmed) |
+| **Lines/Frame** | **314** | 200 visible + 114 VBLANK (confirmed) |
+| **Frame Rate** | ~50 Hz | 14,318,180 / 912 / 314 ≈ 50.0 Hz |
 
 ## Files
 
-### `pitras1.asm` - PIT-Timed Palette Updates ✅
+### `pitras1a.asm` - PIT-Timed Palette Updates (Naive Version) ✅
 
-**Purpose:** Replace HSYNC polling with timer-driven interrupts for per-scanline palette updates.
+**Purpose:** First attempt at PIT-driven raster — replace HSYNC polling with timer-driven interrupts for per-scanline palette updates. Works but flickers visibly due to per-frame re-sync. See pitras1b for the improved version.
 
 **How it works:**
 1. Save original IRQ0 vector (INT 08h)
@@ -92,95 +98,53 @@ out 0x40, al
 
 ---
 
-### `pitras2.asm` - Multiple Palette Entries per Scanline ✅
+### `pitras1b.asm` - Phase-Locked PIT Raster (Zero-Drift) ✅ **CONFIRMED**
 
-**Purpose:** Test updating multiple palette entries during each PIT ISR.
+**Purpose:** Exploit the phase-locked clock tree (CPU, PIT, and pixel clock all derive from the same 14.31818 MHz crystal) to achieve near-perfect raster stability with zero drift.
 
-**Status:** Successfully updates up to 8 palette entries per scanline.
+**Key improvements over pitras1a:**
+1. ONE-TIME setup: sync PIT to HBLANK edge, install ISR, done forever
+2. PIT runs at 76 ticks/scanline — never reprogrammed
+3. ISR uses CS-relative data only (no DS reload = ~12 cycles saved)
+4. Scanline counter wraps at 314 (full PAL frame)
+5. Main loop uses HLT — CPU sleeps between interrupts
+
+**Confirmed Findings:**
+- **76 PIT ticks = 1 scanline** — mathematically exact (912/12), confirmed by testing 75 and 77 (both cause drift)
+- **314 lines per frame** — confirmed by testing 313 (caused upward scroll)
+- **99%+ stable raster bars** — near-zero horizontal jitter or drift
+- Remaining ~1% edge flicker = V40 interrupt latency variance (can't break mid-instruction)
+- **Phase-lock theory: PROVEN** on real hardware
 
 **Controls:**
-- `1-8` - Select number of palette entries to update per scanline
+- `S` - Toggle HLT sleep vs busy-wait (jitter comparison)
+- `.` / `,` - Fine-tune PIT count (shouldn't be needed — 76 is exact)
 - `ESC` - Exit
 
 ---
 
-### `pitras3.asm` - Mid-Scanline Color Split ✅ (with jitter)
+### `pitras1c.asm` - Active Display Phase Sync ✅
 
-**Purpose:** Prove that PIT interrupts can produce **two different colors on a single scanline** by changing palette entry 0 mid-scanline.
+**Purpose:** Exact copy of pitras1b with only HBLANK sync polarity flipped (2-byte binary difference). Syncs PIT to FALLING edge of HBLANK instead of RISING.
 
-**How it works:**
-1. PIT Channel 0 fires IRQ0 once per scanline (~76 ticks)
-2. ISR writes BLUE (R=0,G=0,B=7) to palette entry 0
-3. Variable NOP+LOOP delay burns CPU cycles while the CRT beam scans right
-4. ISR writes RED (R=7,G=0,B=0) to palette entry 0
-5. Left portion of scanline renders blue, right portion renders red
-
-**Result:** Two colors clearly visible on same scanlines. The split point is controllable via the NOP delay. However, the boundary jitters ~4-8 pixels per frame.
-
-**Why the jitter?**
-- The Yamaha V6355D steals bus cycles unpredictably to fetch VRAM, causing the NOP delay to vary by a few cycles per scanline
-- No hardware HSYNC status bit is available on the V6355D for precise synchronization
-- The 8088MPH DRAM refresh trick (PIT CH1: 18→19 ticks) does **not** apply — the NEC V40 has integrated refresh logic, not PIT-driven refresh
-- Pixel-stable splits would require reverse-engineering the V6355D bus access pattern
-
-**Controls:**
-- `Left/Right` - NOP delay ±1 (fine tune split position)
-- `+/-` - NOP delay ±10 (coarse adjustment)
-- `.` / `,` - PIT count ±1 (tune scanline interval)
-- `ESC` - Exit
+**Key Finding:** Proves V6355D tolerates palette writes during active display. More visible jitter than pitras1b (expected — jitter occurs during visible scanline instead of blanking).
 
 ---
 
-### `pitras4.asm` - Cycle-Counted Mid-Scanline Split (No ISR) 🧪
+### `pitras1d.asm` - Half-Scanline PIT Mid-Scanline Split ❌ CRASHES
 
-**Purpose:** Eliminate ISR overhead jitter by replacing PIT interrupts with a
-tight cycle-counted main loop. Inspired by reenigne's 8088 MPH Kefrens bars technique.
+**Purpose:** Two colors per scanline via half-scanline PIT (count=38, two interrupts per scanline). Phase-toggle ISR: phase 0 writes rainbow during HBLANK, phase 1 writes blue mid-scanline.
 
-**How it works:**
-1. Wait for VBLANK (sync to top of frame)
-2. CLI — interrupts off for entire frame
-3. For each of 200 scanlines:
-   - Wait for HSYNC HIGH (sync to scanline start)
-   - Write BLUE to palette entry 0 (3 OUTs)
-   - Cycle-counted NOP delay → targets specific pixel column
-   - Write RED to palette entry 0 (3 OUTs)
-   - Pad NOPs to fill rest of scanline (~509 CPU cycles total)
-4. STI
+**Result:** Crashes on real hardware. Multiple approaches tried (6 iterations):
+- NOP delays between writes: diagonal jitter
+- PORT_STATUS poll between palette writes: V6355D blinking
+- PORT_STATUS poll before writes: reduced but still jittery
+- Half-scanline PIT (count=38) with phase toggle: crash
 
-**Why this should be better than pitras3:**
-- No ISR push/pop/iret overhead (~40 cycles of jitter eliminated)
-- HSYNC poll jitter affects vertical position uniformly, not the split point
-- Split point is purely determined by cycle count from HSYNC edge
-
-**Controls:**
-- `Left/Right` - Split delay ±1 (fine tune pixel position)
-- `+/-` - Split delay ±10 (coarse)
-- `Up/Down` - Pad ±1 (tune total scanline time)
-- `ESC` - Exit
-
----
-
-### `pitras5.asm` - HSYNC-Synced + Deferred Palette 🧪
-
-**Purpose:** Same cycle-counted approach as pitras4, but adds a **close/open palette
-protocol** to minimize V6355D disruption during the visible area.
-
-**How it works:**
-Same as pitras4, except Color A is written with a full open-write-close
-cycle during HBLANK (safe), then Color B is written mid-scanline with
-another open-write-close (may cause brief V6355D glitch).
-
-**Test modes** (press M to cycle):
-- **Mode A:** Blue/Red (high contrast for measuring jitter)
-- **Mode B:** Black/White (maximum luminance contrast)
-- **Mode C:** Gradient (different colors per scanline)
-
-**Controls:**
-- `Left/Right` - Split delay ±1
-- `+/-` - Split delay ±10
-- `Up/Down` - Pad ±1
-- `M` - Cycle test modes
-- `ESC` - Exit
+**Key Discoveries:**
+- Reading PORT_STATUS (0xDA) BETWEEN two palette writes causes V6355D blinking
+- 31,400 IRQs/sec may overwhelm V40 or interact badly with V6355D bus timing
+- Mid-scanline color changes remain an unsolved problem on the PC1
 
 ---
 
@@ -189,14 +153,18 @@ another open-write-close (may cause brief V6355D glitch).
 | Finding | Detail |
 |---------|--------|
 | PIT per-scanline timing | ✅ Works reliably at 76 ticks/scanline |
-| Multiple palette entries/scanline | ✅ Up to 8 entries per ISR (pitras2) |
-| Mid-scanline color split | ✅ Proven — two colors visible on same line |
-| Pixel-stable mid-scanline (PIT ISR) | ❌ Not achievable — ISR overhead + V6355D bus contention = ~4-8px jitter |
-| Cycle-counted loop (no ISR) | 🧪 pitras4/5 — eliminates ISR jitter, V6355D contention remains |
+| **76 PIT ticks = exact scanline** | ✅ **CONFIRMED** — 75 drifts one way, 77 the other |
+| **314 lines per frame** | ✅ **CONFIRMED** — 313 caused upward scroll |
+| **Phase-locked clocks** | ✅ **PROVEN** — PIT free-runs forever, zero drift |
+| Per-scanline stability (pitras1b) | ✅ **99%+ stable** — near-zero jitter |
+| Multiple palette entries/scanline (pitras2) | ❌ Does not work |
+| Mid-scanline color split (pitras3) | ❌ Does not work |
+| Half-scanline PIT (count=38) | ❌ Crashes — pitras1d, 6 iterations all failed |
+| PORT_STATUS between palette writes | ❌ Causes V6355D blinking — must not interleave status reads with palette I/O |
 | DRAM refresh trick (8088MPH) | ❌ Not applicable — V40 has internal refresh, not PIT CH1-driven |
 | V6355D HSYNC status bit | ❌ Not available — no readable horizontal sync reference |
 
-**Conclusion:** PIT-driven raster effects on the PC1 are excellent for per-scanline color changes (pitras1/2). Mid-scanline splits work visually but cannot achieve pixel-level stability without hardware-level V6355D knowledge. pitras4/5 test whether eliminating ISR overhead via cycle-counting (reenigne's approach) reduces jitter to an acceptable level for pixel-targeted color changes.
+**Conclusion:** PIT-driven raster effects on the PC1 are excellent for **per-scanline** color changes. pitras1b proves the phase-lock theory — PIT count 76 and frame total 314 are mathematically exact, and the raster is 99%+ stable with a one-time setup. Mid-scanline splits (two colors per scanline) do not work — pitras3 fails and pitras1d crashes. Future work focuses on maximizing the proven one-change-per-scanline approach to create Amiga copper-style visual effects.
 
 ---
 
@@ -259,6 +227,73 @@ out 0x40, al        ; High byte
 
 **Conclusion:** PIT interrupt timing provides visibly smoother raster effects compared to HSYNC polling, especially in the center and right portions of the screen.
 
+---
+
+## Roadmap: Future PIT Demos
+
+All future work builds on **pitras1b** — the proven one-change-per-scanline approach (99%+ stable, phase-locked to crystal). **No mid-scanline splits needed** — all effects below use ONE palette write per scanline.
+
+### pitras2 — Animated Rainbow Scroll
+
+**Visual:** Rainbow color bars scrolling smoothly down (or up) the screen.
+
+**How:** Same pitras1b ISR, but shift the `color_table` read offset by 1-2 entries each frame during VBLANK. The rainbow pattern appears to flow vertically.
+
+**Difficulty:** Trivial — pitras1b + a single ADD to the starting index per frame.
+
+**Requires:** pitras1b only (one palette write per scanline).
+
+**Research needed:** None — straightforward modification.
+
+---
+
+### pitras3 — Sinusoidal Color Gradient
+
+**Visual:** Smooth pulsing color waves flowing down the screen, like looking through tinted water.
+
+**How:** Pre-compute a 64-entry sine table. Each frame, recalculate `color_table[scanline] = sin(scanline + frame_offset)` mapped to R/G/B palette values. Frame offset advances each VBLANK.
+
+**Difficulty:** Easy — sine lookup + per-frame table rewrite during VBLANK.
+
+**Requires:** pitras1b only (one palette write per scanline).
+
+**Research needed:**
+- Sine table generation for 8086 ASM (integer approximation, 64 or 128 entries)
+- RGB mapping: how to map sine values (0-255) to the V6355D 3-bit R, 3-bit G, 3-bit B palette format
+- VBLANK budget: how many cycles available during VBLANK to rewrite 200 color_table entries (114 blank lines × 456 cycles = ~52,000 cycles — should be plenty)
+
+---
+
+### pitras4 — Copper Bars / Rainbow Serpents
+
+**Visual:** Multiple colored bands (8-16 scanlines each) with smooth dark→bright→dark gradients, bouncing up and down at different speeds. Classic Amiga "copper bar" effect.
+
+**How:** Each frame during VBLANK: fill `color_table` with background color, then "stamp" each bar's gradient at its current Y position. Multiple bars moving independently = rainbow serpents.
+
+**Difficulty:** Medium — multiple bar positions + gradient stamping + bounce logic.
+
+**Requires:** pitras1b only (one palette write per scanline).
+
+**Research needed:**
+- Bar gradient shape: pre-computed lookup table for dark→bright→dark intensity curve (triangular or gaussian)
+- Bar overlap: what happens when two bars overlap? Options: additive blending (clamp to max), priority (front bar wins), or XOR
+- Bounce physics: simple y_pos += y_speed; if y_pos > 200 or y_pos < 0: y_speed = -y_speed
+- Performance: stamping 3-5 bars × 16 scanlines × 2 bytes = 160-320 bytes of writes per VBLANK — trivially fast
+
+---
+
+### Priority Order
+
+| # | Demo | Effect | Prerequisite |
+|---|------|--------|--------------|
+| 2 | Animated scroll | Flowing rainbow | pitras1b (trivial mod) |
+| 3 | Sine gradient | Pulsing color waves | pitras2 + sine table |
+| 4 | Copper bars | Bouncing color bands | pitras3 + multi-bar |
+
+Each demo builds incrementally on the previous. pitras2 is essentially pitras1b with one extra instruction.
+
+---
+
 ## References
 
 - Intel 8253/8254 PIT datasheet
@@ -268,9 +303,8 @@ out 0x40, al        ; High byte
 ## Compilation
 
 ```powershell
-nasm -f bin -o pitras1.com pitras1.asm
-nasm -f bin -o pitras2.com pitras2.asm
-nasm -f bin -o pitras3.com pitras3.asm
+nasm -f bin -o pitras1a.com pitras1a.asm
+nasm -f bin -o pitras1b.com pitras1b.asm
 copy pitras*.com a:
 ```
 
