@@ -57,7 +57,7 @@ Runs three automated tests, then displays results on screen.
 - The HSYNC pulse (STATUS bit 0 = 1) is extremely brief — only ~2 loop iterations
 - VBLANK (STATUS bit 3) is reliable for frame synchronization
 - Raster bar code must detect the HSYNC *edge* (0→1 transition), not poll for duration
-- PAL 50 Hz expected: ~512 CPU cycles/scanline, ~312 scanlines/frame, ~112 VBLANK lines
+- PAL 50 Hz expected: ~456 CPU cycles/scanline, 314 scanlines/frame, 114 VBLANK lines (see [pitclk](pitclk.asm) for confirmed values)
 
 **Why This Matters:**
 These measurements directly informed the raster bar timing strategy used in demos 03 through 05. The discovery that HSYNC is too brief to poll reliably led to the edge-detection approach used in all the raster demos.
@@ -129,6 +129,51 @@ crtctest.com
 - R4/R6 join R8 (Interlace Mode), R16 (Interlace Offset), and Skew registers in the confirmed dummy register list.
 
 **Implication:** The 384-byte gap problem for circular buffer scrolling **cannot be solved** via CRTC Restarts. Software viewport copying (demo7b approach) remains the only reliable method for scrolling tall images.
+
+---
+
+### crtc_reg_test.asm — Comprehensive CRTC Register Map
+
+Tests ALL 18 MC6845 CRTC registers (R0-R17) on the V6355D: readback (write-then-read), live counter detection (R14/R15), PIT frame timing (R4/R7 effect), and interactive visual effect tests (R0-R3 horizontal registers).
+
+**Files:** `crtc_reg_test.asm` / `crtc_reg_test.com`
+
+**Usage:**
+```
+crtc_reg_test.com
+```
+
+**Two Phases:**
+- **Phase 1 (Automated):** Register readback, live counter detection, PIT baseline timing
+- **Phase 2 (Interactive):** Visual tests — modify register, ask user "See a change? Y/N"
+
+**Hardware Test Results (March 2, 2026 — real Olivetti Prodest PC1):**
+
+| Register | Readable? | Effect | Notes |
+|----------|-----------|--------|-------|
+| R0 H Total | NO | **DUMMY** | Horizontal timing hardcoded in silicon |
+| R1 H Displayed | NO | **DUMMY** | Can't change visible width |
+| R2 H Sync Position | NO | **DUMMY** | Use V6355D reg 0x67 instead |
+| R3 H Sync Width | NO | **DUMMY** | Sync pulse hardcoded |
+| R4 V Total | NO | DUMMY | Already confirmed by crtc_restarts_test |
+| R5 V Adjust | NO | -- | Not tested |
+| R6 V Displayed | NO | DUMMY | Already confirmed by crtc_restarts_test |
+| R7 V Sync Position | NO | **DUMMY** | PIT timing unchanged |
+| R8 Interlace | NO | -- | Not tested |
+| R9 Max Scanline | NO | WORKS | Character height (pre-confirmed) |
+| R10/R11 Cursor | NO | WORKS | Cursor shape (pre-confirmed) |
+| R12 Start Addr Hi | NO | WORKS | Hardware scrolling (pre-confirmed) |
+| R13 Start Addr Lo | **YES** | WORKS | Only low byte readable |
+| R14 Cursor Addr Hi | NO | -- | **NOT a live counter** |
+| R15 Cursor Addr Lo | **YES** | -- | **NOT a live counter** |
+| R16/R17 Light Pen | NO | -- | Not functional |
+
+**Key Discoveries:**
+- **All four horizontal registers (R0-R3) are DUMMY** — the V6355D hardcodes all horizontal timing. Only V6355D register 0x67 adjusts horizontal position.
+- **R7 (V Sync Position) is DUMMY** — PIT frame period unchanged after modification.
+- **R14/R15 are NOT live raster counters** — both return constant 00 across all samples. Beam position requires PIT timing, not CRTC reads.
+- **Only R13 and R15 are readable** (low bytes). High bytes (R12, R14) return stale bus data.
+- **PIT baseline: 23,868 ticks/frame** — independently confirms 76 × 314 = 23,864 (±4 jitter).
 
 ---
 
@@ -300,6 +345,39 @@ The "Simone flip" double-buffer technique from CGA mode 4 cannot be used in hidd
 
 ---
 
+### pitclk.asm — CPU Frequency Measurement Tool
+
+Determines whether the PC1's CPU clock is derived from the V6355D master clock (14.31818 MHz crystal) via the DCK pin, or from a separate oscillator. This tool provided the proof that **CPU, PIT, and pixel clocks are all phase-locked** from the same crystal — the foundation for cycle-counted beam racing on the PC1.
+
+**Files:** `pitclk.asm` / `pitclk.com` / `pitclk-v4.png` (screenshot)
+
+**Usage:**
+```
+pitclk.com
+```
+Runs 5 automated timing tests using PIT channel 0, displays ANSI-colored results. Press any key to exit.
+
+**Confirmed Results (February 2026 — real Olivetti Prodest PC1):**
+
+| Measurement | Value | Significance |
+|------------|-------|-------------|
+| Normal mode CPU | DCK ÷ 3 = 4.773 MHz | Same crystal as video |
+| **Turbo mode CPU** | **DCK ÷ 2 = 7.159 MHz** | **1 CPU cycle = 1 pixel** |
+| PIT count/scanline | 76 ticks (exact) | 912 pixel clocks ÷ 12 = 76.0 |
+| Frame total | 314 scanlines | 200 visible + 114 VBLANK |
+| Frame rate | ~50 Hz PAL | 14,318,180 / 912 / 314 ≈ 50.0 Hz |
+| Bus contention | None on system RAM | V6355D only steals VRAM (B000h) bus cycles |
+
+**Key Implications:**
+- The "8 MHz" marketing claim is rounded up from 7.159 MHz
+- 456 CPU cycles per scanline (exact integer) — pixel-perfect beam racing is possible
+- NOP delay loops are fully deterministic regardless of beam position
+- Phase-lock confirmed by pitras1b: PIT free-runs with zero drift forever
+
+See [PC1-CLOCK-DISCOVERY.md](../demos/06-pit-raster-timing/PC1-CLOCK-DISCOVERY.md) for full clock tree analysis.
+
+---
+
 ## Building
 
 ```bash
@@ -309,7 +387,9 @@ nasm -f bin cga_scroll_test.asm -o cga_scroll_test.com
 nasm -f bin V6355D_scroll_test.asm -o V6355D_scroll_test.com
 nasm -f bin flip-hidden-test.asm -o fliptest.com
 nasm -f bin crtc_restarts_test.asm -o crtctest.com
+nasm -f bin crtc_reg_test.asm -o crtc_reg_test.com
 nasm -f bin reg65_test.asm -o reg65tst.com
+nasm -f bin pitclk.asm -o pitclk.com
 ```
 
 ## Requirements

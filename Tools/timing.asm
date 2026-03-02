@@ -11,9 +11,9 @@
 ;   - Est. CPU cycles per scanline: 22 (hsync pulse only)
 ;
 ; PAL 50Hz Expected Values (for reference):
-;   - 64 µs per scanline (~512 CPU cycles @ 8MHz)
-;   - ~312 total scanlines per frame
-;   - ~112 vblank lines (~7.2 ms vblank)
+;   - 63.7 µs per scanline (456 CPU cycles @ 7.159 MHz turbo)
+;   - 314 total scanlines per frame (confirmed by pitclk + pitras1b)
+;   - 114 vblank lines (~7.3 ms vblank)
 ;   - ~40-50 loop iterations per scanline
 ;   - ~4000-5000 iterations during vblank
 ;
