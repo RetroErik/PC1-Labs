@@ -155,6 +155,38 @@ The key insight: Instead of being limited to 16 simultaneous colors (standard CG
 **Controls:**
 - Any key - Exit to DOS
 
+### `palram7.asm` - **NEW!** BMP Image with Palette RAM Raster Bars
+**Purpose:** Combine BMP image loading with palette RAM raster bars
+- **Complexity:** Intermediate (~1000 lines)
+- **Features:**
+  - Loads a 4-bit BMP image and displays it
+  - Two animated raster bars using **palette RAM** instead of PORT_COLOR
+  - Bars bounce with sine-wave motion and swap depth when crossing (3D effect)
+  - Raster bars "shine through" wherever the image has color 0 (background) pixels
+  - Colors 1-15 from the BMP palette remain unaffected
+  - RGB333 gradient colors (red bar + cyan bar)
+  - **Skip-if-same optimization:** only writes palette on scanlines where color changes (~30 of 200)
+  - **OUTSB burst writes:** 186-mode OUTSB for ~60 cycle HBLANK critical path
+  - C64-style border color cycling during image loading
+- **Learning focus:** Combining bitmap display with per-scanline palette manipulation
+- **Good for:** Understanding how palette RAM rasters interact with actual image data
+
+**Key Differences from PORT_COLOR raster bars (demo1.asm in 04-Bitmap-stuff):**
+- PORT_COLOR only affects the border/overscan area — palette RAM changes what color 0 actually looks like
+- Palette RAM bars affect all color 0 pixels in the active display area
+- 4 OUTs per scanline (open + R + G|B + close) instead of 1, but fits in HBLANK
+- RGB333 gives 512 possible colors vs 16 palette indices
+
+**vs demo1b.asm (04-Bitmap-stuff):** Both use palette RAM + skip-if-same + OUTSB. The difference is the scanline table format: demo1b stores a 1-byte palette index per scanline and does a runtime LUT lookup to get the RGB pair, while palram7 stores the 2-byte R,G|B pair directly — no lookup needed at render time, at the cost of 200 extra bytes of RAM.
+
+**Controls:**
+- Any key - Exit to DOS
+
+**Usage:**
+```
+PALRAM7 image.bmp
+```
+
 ## Why Palette RAM Instead of PORT_COLOR?
 
 The V6355D offers two raster bar techniques:
@@ -207,6 +239,7 @@ nasm -f bin -o palram3.com palram3.asm
 nasm -f bin -o palram4.com palram4.asm
 nasm -f bin -o palram5.com palram5.asm
 nasm -f bin -o palram6.com palram6.asm
+nasm -f bin -o palram7.com palram7.asm
 ```
 
 ### Copy to floppy:
@@ -222,6 +255,7 @@ A:\palram3.com
 A:\palram4.com
 A:\palram5.com
 A:\palram6.com
+A:\palram7 image.bmp
 ```
 
 ## Learning Progression
@@ -232,6 +266,7 @@ A:\palram6.com
 4. **Use `palram4.asm`** - See clean, optimized implementation for your projects
 5. **Experiment with `palram5.asm`** - Explore horizontal timing limits and advanced techniques
 6. **Study `palram6.asm`** - Understand why multi-color rasters are limited to 1 entry per HBLANK
+7. **Try `palram7.asm`** - See palette RAM rasters combined with BMP image display
 
 ## Educational Insights
 
