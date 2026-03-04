@@ -33,6 +33,18 @@ This folder traces the evolution from "display a BMP with raster bars" all the w
 - Uses 8-bit port aliases (0xD9/0xDA) for faster OUT timing
 - **901 lines** | Any key = exit
 
+#### `demo1b.asm` — PALRAM Raster Bars on Black Pixels (Optimized)
+**Technique:** Per-scanline palette RAM reprogramming — bars appear *on the image* wherever palette index 0 (black) is used
+- **PALRAM method** instead of PORT_COLOR: rewrites palette entry 0 during hblank so bars affect active display pixels, not just the border
+- Two sine-wave bars (red/green gradients) with depth-order swapping when crossing
+- **Skip-if-same optimization:** compares next R,GB pair against previous values — if unchanged, zero port writes are performed (most scanlines are unchanged since bars are ~28 lines out of 200)
+- **OUTSB burst writes** (CPU 186): 3-byte buffer `[0x40, R, GB]` blasted via `outsb` + close with `out 0x80` — critical path is 60 clocks within ~150 clock hblank
+- Preserves BMP palette entry 0: extracts the image's original color and restores it on non-bar scanlines instead of forcing black
+- Opens and closes palette write window (0x40/0x80) per scanline to prevent V6355D DAC corruption during active display
+- **CPU usage:** ~100% during 200 visible scanlines (spin-polling HSYNC). ~22% of frame time free (vblank only). Suitable for static-image + bar effects (title screens, intros) but leaves no CPU for sprites/scrollers/music during active display
+- Uses `[CPU 186]` for OUTSB (NEC V40 is 80186-compatible)
+- **~1020 lines** | Any key = exit
+
 #### `Demo2.asm` — VRAM Strip Bars with Palette Cycling
 **Technique:** Draw bar strips into VRAM using reserved palette entries 14/15, animate via palette cycling
 - Bars are solid VRAM strips (0xEE/0xFF pixels), not PORT_COLOR
@@ -90,14 +102,26 @@ This folder traces the evolution from "display a BMP with raster bars" all the w
 
 ### Partial-Screen Panning
 
-#### `demo6.asm` — Partial Image Panning with Delta Clearing + FPS Counter
+#### `demo6a.asm` — Partial Image Panning with Delta Clearing + FPS Counter
 **Technique:** Only update a configurable number of rows (default 50) — not the full screen
 - **Delta clearing:** Only clears exposed rows that won't be overwritten (no full-screen flash)
   - Moving down? Clear only top exposed rows. Moving up? Clear only bottom exposed rows
+- Bank-by-bank drawing (all even rows, then all odd rows)
+- 2-pixel Y steps to preserve bank alignment
 - C64-style Lissajous wobble motion
 - FPS counter shows actual performance (updates once per second)
 - 50 rows = 50 FPS with VSync, 72 FPS free-running (44% headroom)
-- **1942 lines** | V = toggle VSync, any other key = exit
+- **~1942 lines** | V = toggle VSync, any other key = exit
+
+#### `demo6b.asm` — Smooth Partial Image Panning (Scanline-Order Drawing) — **FINAL**
+**Technique:** Improved version of demo6a with significantly smoother motion
+- **Scanline-order drawing:** Writes rows in display order (0,1,2,3...) instead of bank order — reduces visible comb/shimmer artifacts caused by half-drawn frames
+- **1-pixel Y steps:** Removed the 2-pixel Y constraint — draw routine handles bank alignment dynamically for any Y position
+- **High-precision sine table:** 0-200 range (vs 0-100 in demo6a) doubles position resolution, eliminating "staircase" jumps at low speeds
+- **Top-clipping:** ~Half the image can scroll off the top of the screen (negative Y positions supported)
+- **FPS-safe Y range:** Image stops above the FPS counter (MAX_Y = FPS_ROW - PARTIAL_HEIGHT)
+- Delta clearing preserved from demo6a
+- **~1998 lines** | V = toggle VSync, any other key = exit
 
 ---
 
@@ -199,13 +223,15 @@ demo9b also supports tall images up to 160×800 or 320×800.
 
 ```powershell
 nasm -f bin -o demo1.com demo1.asm
+nasm -f bin -o demo1b.com demo1b.asm
 nasm -f bin -o Demo2.com Demo2.asm
 nasm -f bin -o demo3.com demo3.asm
 nasm -f bin -o demo4.com demo4.asm
 nasm -f bin -o demo5a.com demo5a.asm
 nasm -f bin -o "demo5b - linear ram.com" "demo5b - linear ram.asm"
 nasm -f bin -o "demo5c - fast interlaced RAM.com" "demo5c - fast interlaced RAM.asm"
-nasm -f bin -o demo6.com demo6.asm
+nasm -f bin -o demo6a.com demo6a.asm
+nasm -f bin -o demo6b.com demo6b.asm
 nasm -f bin -o demo7a.com demo7a.asm
 nasm -f bin -o demo7b.com demo7b.asm
 nasm -f bin -o demo8a.com demo8a.asm
@@ -240,9 +266,9 @@ See **V6355D-Technical-Reference.md, Section 17f** for the full investigation.
 
 ## Learning Progression
 
-1. **demo1 → demo4** — Raster bars over images: PORT_COLOR limitations, VRAM strips, palette cycling
+1. **demo1 → demo4** — Raster bars over images: PORT_COLOR limitations (demo1), PALRAM per-scanline rewrite with OUTSB (demo1b), VRAM strips with palette cycling (demo2–demo4)
 2. **demo5a–5c** — Full-screen scrolling: RAM buffer strategies (linear vs interlaced)
-3. **demo6** — Partial updates: delta clearing, FPS measurement
+3. **demo6a–6b** — Partial updates: delta clearing, FPS measurement, scanline-order drawing, 1-pixel Y smoothness
 4. **demo7a** — Hardware scrolling: R12/R13 concept and the bank gap problem
 5. **demo7b** — Software scrolling: brute-force 16KB/frame for tall images
 6. **demo8a → demo8c** — Circular buffer: the elegant 160-byte solution, the gap problem, and the final fix via register 0x65 (192-line mode + true CRTC wrapping)

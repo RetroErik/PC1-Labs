@@ -6,9 +6,10 @@
 ;
 ; Description:
 ;   Loads and displays a 4-bit BMP image, then overlays two horizontal
-;   raster bars that move independently using sine-wave motion.
-;   The bars use reserved palette entries 14 and 15 which are updated
-;   during VBlank for smooth, flicker-free color cycling.
+;   raster bars that move independently using sine-wave motion across
+;   the full screen height (0..185). The bars use reserved palette entries
+;   14 and 15 which are updated during VBlank for smooth, flicker-free
+;   color cycling.
 ;
 ; ============================================================================
 ; RAM BUFFER DESIGN
@@ -200,7 +201,7 @@ BMP_COMPRESSION equ 30          ; Compression (dword, 0=none)
 ; Palette 0-13 is used by the BMP image, only 14-15 are reserved for bars
 ; ============================================================================
 
-BAR_HEIGHT      equ 12          ; Height of each bar in scanlines
+BAR_HEIGHT      equ 15          ; Height of each bar in scanlines
 
 ; Palette index for each bar (these entries cycle through colors)
 BAR1_PALETTE    equ 14          ; Bar 1 uses palette index 14 (green cycle)
@@ -210,16 +211,13 @@ BAR2_PALETTE    equ 15          ; Bar 2 uses palette index 15 (blue cycle)
 BAR1_SPEED      equ 2           ; Bar 1 sine index increment per frame
 BAR2_SPEED      equ 3           ; Bar 2 sine index increment per frame
 
-; Per-bar center position (Y coordinate on screen)
-BAR1_CENTER     equ 100         ; Bar 1 oscillates around this Y position
-BAR2_CENTER     equ 100         ; Bar 2 oscillates around this Y position
-
 ; Per-bar starting phase (0-255, controls where in sine wave each bar starts)
 BAR1_PHASE      equ 0           ; Bar 1 starts at sine position 0
 BAR2_PHASE      equ 85          ; Bar 2 starts 1/3 cycle offset (120 degrees)
 
-; Shared amplitude (affects wobble range for both bars)
-SINE_AMPLITUDE  equ 50          ; Maximum distance from center
+; Sine table now encodes direct Y positions (0..185), covering the full screen.
+; No center/amplitude constants needed - the table IS the motion path.
+; Max Y = SCREEN_HEIGHT - BAR_HEIGHT = 200 - 15 = 185
 
 ; Color cycling speed (frames per color step)
 COLOR_SPEED     equ 12          ; Higher = slower color cycling (smoother wave)
@@ -612,7 +610,12 @@ update_bar_palette:
     ret
 
 ; ============================================================================
-; update_bar_positions - Calculate new Y positions using sine wave
+; update_bar_positions - Look up new Y positions from sine table
+;
+; The sine table directly encodes screen Y positions (0..185), so no
+; center/amplitude arithmetic is needed. Each bar has its own phase
+; offset and speed to create independent motion patterns.
+; Max Y = 185 = SCREEN_HEIGHT(200) - BAR_HEIGHT(15)
 ; ============================================================================
 update_bar_positions:
     push ax
@@ -626,18 +629,10 @@ update_bar_positions:
     add al, BAR1_SPEED
     mov [bar1_sine_idx], al
     
-    ; Calculate bar 1 Y position: center + (sine - 50)
+    ; Look up bar 1 Y position directly from sine table (0..185)
     xor ah, ah
     mov si, ax
-    mov al, [sine_table + si]   ; Get sine value (0-100, centered at 50)
-    add al, BAR1_CENTER
-    sub al, SINE_AMPLITUDE      ; Adjust so sine oscillates around center
-    
-    ; Clamp to valid screen range
-    cmp al, SCREEN_HEIGHT - BAR_HEIGHT
-    jb .bar1_ok
-    mov al, SCREEN_HEIGHT - BAR_HEIGHT - 1
-.bar1_ok:
+    mov al, [sine_table + si]   ; Direct Y position (full screen range)
     mov [bar1_y], al
     
     ; Update bar 2 sine index
@@ -645,18 +640,10 @@ update_bar_positions:
     add al, BAR2_SPEED
     mov [bar2_sine_idx], al
     
-    ; Calculate bar 2 Y position
+    ; Look up bar 2 Y position directly from sine table (0..185)
     xor ah, ah
     mov si, ax
-    mov al, [sine_table + si]
-    add al, BAR2_CENTER
-    sub al, SINE_AMPLITUDE
-    
-    ; Clamp to valid screen range
-    cmp al, SCREEN_HEIGHT - BAR_HEIGHT
-    jb .bar2_ok
-    mov al, SCREEN_HEIGHT - BAR_HEIGHT - 1
-.bar2_ok:
+    mov al, [sine_table + si]   ; Direct Y position (full screen range)
     mov [bar2_y], al
     
     pop si
@@ -1467,27 +1454,27 @@ cga_colors:
     db 0x07, 0x77               ; 15: White
 
 ; ============================================================================
-; Sine table (256 entries, values 0-100 representing sine wave)
-; Center value is 50, oscillates between 0 and 100
-; Used for smooth wobble motion
+; Sine table (256 entries, values 0-185 = direct Y positions)
+; Covers full screen: 0 to SCREEN_HEIGHT - BAR_HEIGHT = 200 - 15 = 185
+; Bars sweep from top to bottom of the display for maximum visual impact
 ; ============================================================================
 sine_table:
-    db 50, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 64, 65, 66, 68
-    db 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84
-    db 84, 85, 86, 87, 87, 88, 89, 89, 90, 90, 91, 91, 92, 92, 93, 93
-    db 94, 94, 94, 95, 95, 95, 96, 96, 96, 96, 97, 97, 97, 97, 97, 97
-    db 97, 97, 97, 97, 97, 97, 97, 97, 96, 96, 96, 96, 95, 95, 95, 94
-    db 94, 94, 93, 93, 92, 92, 91, 91, 90, 90, 89, 89, 88, 87, 87, 86
-    db 85, 84, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71
-    db 70, 69, 68, 66, 65, 64, 63, 62, 61, 59, 58, 57, 56, 55, 53, 52
-    db 50, 49, 48, 47, 45, 44, 43, 42, 41, 39, 38, 37, 36, 35, 34, 32
-    db 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16
-    db 16, 15, 14, 13, 13, 12, 11, 11, 10, 10,  9,  9,  8,  8,  7,  7
-    db  6,  6,  6,  5,  5,  5,  4,  4,  4,  4,  3,  3,  3,  3,  3,  3
-    db  3,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  5,  5,  5,  6
-    db  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 11, 12, 13, 13, 14
-    db 15, 16, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29
-    db 30, 31, 32, 34, 35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 47, 48
+    db  92,  95,  97,  99, 102, 104, 106, 108, 111, 113, 115, 117, 119, 122, 124, 126
+    db 128, 130, 132, 134, 136, 138, 140, 142, 144, 146, 148, 149, 151, 153, 155, 156
+    db 158, 159, 161, 163, 164, 165, 167, 168, 169, 171, 172, 173, 174, 175, 176, 177
+    db 178, 179, 180, 180, 181, 182, 182, 183, 183, 184, 184, 184, 185, 185, 185, 185
+    db 185, 185, 185, 185, 185, 184, 184, 184, 183, 183, 182, 182, 181, 180, 180, 179
+    db 178, 177, 176, 175, 174, 173, 172, 171, 169, 168, 167, 165, 164, 163, 161, 159
+    db 158, 156, 155, 153, 151, 149, 148, 146, 144, 142, 140, 138, 136, 134, 132, 130
+    db 128, 126, 124, 122, 119, 117, 115, 113, 111, 108, 106, 104, 102,  99,  97,  95
+    db  93,  90,  88,  86,  83,  81,  79,  77,  74,  72,  70,  68,  66,  63,  61,  59
+    db  57,  55,  53,  51,  49,  47,  45,  43,  41,  39,  37,  36,  34,  32,  30,  29
+    db  27,  26,  24,  22,  21,  20,  18,  17,  16,  14,  13,  12,  11,  10,   9,   8
+    db   7,   6,   5,   5,   4,   3,   3,   2,   2,   1,   1,   1,   0,   0,   0,   0
+    db   0,   0,   0,   0,   0,   1,   1,   1,   2,   2,   3,   3,   4,   5,   5,   6
+    db   7,   8,   9,  10,  11,  12,  13,  14,  16,  17,  18,  20,  21,  22,  24,  26
+    db  27,  29,  30,  32,  34,  36,  37,  39,  41,  43,  45,  47,  49,  51,  53,  55
+    db  57,  59,  61,  63,  66,  68,  70,  72,  74,  77,  79,  81,  83,  86,  88,  90
 
 ; ============================================================================
 ; Buffers (must be at end of file)
