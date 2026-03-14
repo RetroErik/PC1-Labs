@@ -1,9 +1,13 @@
 ; ============================================================================
 ; PALRAM9.ASM - BMP Image + Animated Raster Bars (Flip-First + Entry 0)
+;              E0 written every scanline — no skip-if-same optimization
 ; ============================================================================
 ;
 ; Combines pc1-bmp4's flip-first 3-color-per-scanline BMP display with
 ; palram7b's dancing sine-wave raster bars on the background (entry 0).
+; Unlike palram7b, E0 must be written on every scanline in the bar zones
+; (not just lines where the color changes) to avoid timing-drift blinking
+; at zone transitions. See "THE BIG DISCOVERY" section below.
 ;
 ; The BMP image is displayed in CGA mode 4 (320x200x4) using the
 ; flip-first palette technique from pc1-bmp4: per-scanline palette flip
@@ -106,15 +110,59 @@
 ; WHAT WORKS
 ; ============================================================================
 ;
-;   - Raster bars display perfectly with no shimmer or artifacts
+;   - Raster bars display with smooth animation, no shimmer or blinking,
+;     but with a tiny artifact on the first few pixels of each bar
+;     scanline (see NOTE below)
 ;   - Pre-fetching R into AH and G|B into [bar_gb] before the HBLANK
-;     wait loop eliminates the left-edge shimmer that occurred when
+;     wait loop eliminates the full-width shimmer that occurred when
 ;     memory reads happened during the critical HBLANK window
 ;   - Image displays correctly with 3 colors per scanline via flip-first
 ;   - Image area is flicker-free — no blinking or artifacts
 ;   - Bars animate smoothly with sine-wave bounce
 ;   - Toggle bars on/off with SPACE key
 ;   - BMP loading with two-pass analysis, nearest-neighbor color mapping
+;
+;   NOTE: There is a tiny visual imperfection — the first few pixels on
+;   the left edge of each raster bar scanline may show a brief color
+;   glitch. This is caused by the E0 palette write completing at the
+;   very edge of the HBLANK window (~55 cycles of port I/O out of
+;   ~72-80 available). The close instruction (0x80 to 0xDD) finishes
+;   just as the beam enters the visible area, causing a few pixels to
+;   catch the transition. This is an inherent trade-off of writing E0
+;   on every scanline and cannot be eliminated without fewer OUT
+;   instructions (the V6355D requires all 4) or a wider HBLANK window
+;   (fixed by hardware).
+;
+; ============================================================================
+; THE BIG DISCOVERY — E0 Must Be Written On Every Scanline
+; ============================================================================
+;
+;   In palram7b (raster bars without a BMP image), performance was
+;   optimized with a "skip-if-same" approach: E0 was only written on
+;   scanlines where the bar color actually changed. Since a bar only
+;   occupies ~14-28 of the 200 lines, the vast majority of scanlines
+;   were skipped, meaning the HBLANK write path ran on very few lines.
+;   This worked perfectly in palram7b's single-zone design.
+;
+;   In palram9, the same skip-if-same approach caused severe blinking.
+;   The problem is timing drift at zone transitions: the "write" path
+;   and the "skip" path have different execution times. When the code
+;   transitions from Zone 1 (bars) to Zone 2 (image), the variable
+;   timing from write-vs-skip decisions creates a different offset into
+;   the scanline each frame. This frame-to-frame jitter at the zone
+;   boundary causes visible blinking.
+;
+;   The solution — and palram9's defining constraint — is to write E0
+;   on EVERY scanline in the bar zones, even when the color hasn't
+;   changed. This makes every scanline take the same code path with
+;   identical timing, eliminating the jitter at zone transitions.
+;
+;   The trade-off: writing E0 on every line means 4 OUT instructions
+;   (~55 cycles) execute during every HBLANK in the bar zones. Since
+;   HBLANK is only ~72-80 cycles, the write barely fits, and the last
+;   few cycles spill past the start of the visible area — causing the
+;   tiny left-edge artifact described above. This is the price of
+;   flicker-free multi-zone raster bars on the V6355D.
 ;
 ; ============================================================================
 ; WHAT WAS TRIED AND DIDN'T WORK (development history)
@@ -123,13 +171,30 @@
 ;   These approaches were tested during development and caused problems:
 ;
 ;   - Skip-if-same optimization (only writing E0 on scanlines where the
-;     color changes) caused blinking. Writing E0 every scanline (even
-;     when the color hasn't changed) is required for stability.
+;     color changes) caused blinking in palram9's multi-zone layout.
+;     See "THE BIG DISCOVERY" above for full explanation.
+;
 ;   - OUTSB burst technique (palram7b's DX=0xDD approach) for bar zones
 ;     caused blinking — possibly because switching DX between 0xDD
 ;     (bar zones) and 0xDE (image zone) disrupts V6355D state.
+;
 ;   - Using BP or BX registers for pre-fetch instead of AH + [bar_gb]
 ;     also caused blinking in the bar zones.
+;
+;   - Partial E0 writes — writing only the R byte (for the red bar) or
+;     only the G|B byte (for the cyan bar) and closing the palette
+;     session. The V6355D requires both bytes to be written for each
+;     palette entry. Writing only one byte and closing with 0x80 causes
+;     the entry to vanish entirely (the bar disappears). This is a
+;     hard requirement: open (0x40), write R, write G|B, close (0x80)
+;     — all four OUTs are mandatory.
+;
+;   - Replacing memory reads with immediate zeros (e.g., XOR AL,AL
+;     instead of MOV AL,[bar_gb] for the unused color channel) was
+;     tested to try to reduce the left-edge artifact. The code worked
+;     correctly, but the cycle savings (~4 cycles per scanline) were
+;     too small to visibly reduce the artifact. The bottleneck is the
+;     4 OUT instructions themselves, not the data loads between them.
 ;
 ;   KEY FIX: Pre-fetching the bar color bytes (R into AH, G|B into
 ;   [bar_gb]) BEFORE the HBLANK wait loop — so the critical burst uses
