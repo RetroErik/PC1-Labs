@@ -4,7 +4,7 @@ Educational demonstrations of per-scanline **Palette RAM manipulation** on the O
 
 The plan is to test 4 method. We have tested method 1 and 2
   1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-port-color-rasters. Works on standard CGA.
-  2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-palette-ram-rasters. V6355D-only.
+  2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-palette-ram-rasters. V6355D-only. **Confirmed mode-independent** (works in both 160x200x16 and CGA mode 4).
  **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates. Works on standard CGA as a timing method.
  **  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline. Works on standard CGA.
 
@@ -12,8 +12,8 @@ The plan is to test 4 method. We have tested method 1 and 2
 - **Machine:** Olivetti Prodest PC1
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
 - **Video Controller:** Yamaha V6355D
-- **Video Mode:** CGA 160x200x16 (Hidden graphics mode)
-- **Compatibility note:** If you change the demo resolution from 160x200 to a standard CGA mode (for example 320x200 mode 0x04) and avoid palette RAM writes, the code will run on any IBM PC with CGA.
+- **Video Mode:** CGA 160x200x16 (Hidden graphics mode) / CGA Mode 4 320x200x4 (palram7b, palram8)
+- **Compatibility note:** Palette RAM (0x3DD/0x3DE) is V6355D-only but **mode-independent** — works in both the hidden 160x200x16 mode and standard CGA mode 4 (verified March 2026). If you change the demo resolution from 160x200 to a standard CGA mode (for example 320x200 mode 0x04) and avoid palette RAM writes, the code will run on any IBM PC with CGA.
 
 ## Overview
 
@@ -187,6 +187,109 @@ The key insight: Instead of being limited to 16 simultaneous colors (standard CG
 PALRAM7 image.bmp
 ```
 
+### `palram7b.asm` - **NEW!** Dancing Raster Bars in CGA Mode 4
+**Purpose:** Palette RAM raster bars in standard CGA mode (no BMP image)
+- **Complexity:** Intermediate (~420 lines)
+- **Features:**
+  - Standard CGA mode 4 (320x200x4) — proves palette RAM works in CGA modes
+  - Two animated raster bars (red + cyan) with sine-wave bounce
+  - Bars swap depth order when crossing (3D illusion)
+  - Black background — no BMP loading needed
+  - All optimizations from palram7: OUTSB, skip-if-same, short ports
+- **Learning focus:** Palette RAM technique works identically in CGA mode 4
+- **Good for:** Standalone raster bar demo, CGA mode 4 palette RAM proof
+
+**Key Finding:**
+- V6355D palette RAM is **mode-independent** — identical behavior in CGA mode 4 and hidden 160x200x16 mode
+- Same OUTSB burst, skip-if-same, and timing constraints apply
+
+**Controls:**
+- Any key - Exit to DOS
+
+### `palram8.asm` - **NEW!** Palette RAM Gradient in CGA Mode 4
+**Purpose:** Confirm palette RAM works in standard CGA mode 4
+- **Complexity:** Simple (~430 lines)
+- **Features:**
+  - Standard CGA mode 4 (320x200x4) with palette RAM gradient
+  - Same warm gradient pattern as palram1
+  - Optional animation (SPACE bar to toggle)
+  - All optimizations: OUTSB, skip-if-same, short ports, immediate status I/O
+- **Learning focus:** Palette RAM is mode-independent on V6355D
+- **Good for:** Quick proof that palette RAM works in CGA mode 4
+
+**Key Finding (verified on real PC1, March 2026):**
+- V6355D palette RAM ports (0x3DD/0x3DE) respond identically in CGA mode 4
+- All 512 RGB333 colors available in standard CGA mode, not just hidden mode
+- Palette technique is chip-dependent (V6355D), not mode-dependent
+
+**Controls:**
+- `SPACE` - Toggle animation on/off
+- `ESC` - Exit to DOS
+
+### `palram9.asm` - **NEW!** BMP Image + Animated Raster Bars (3-Zone Split)
+**Purpose:** Combine pc1-bmp4's flip-first BMP display with palram7b's raster bars
+- **Complexity:** Advanced (~1970 lines)
+- **Features:**
+  - Loads 4-bit or 8-bit BMP image, displays in CGA mode 4 (320x200x4)
+  - Flip-first palette technique: 3 unique colors per scanline using E2-E7
+  - Two animated raster bars (red + cyan) bouncing via sine wave on E0
+  - 3-zone symmetric screen split (bars / image / bars)
+  - Register pre-fetch: R loaded into AH, G|B saved to fixed memory address
+    before the HBLANK wait — eliminates indexed memory reads during burst
+  - Two-pass BMP analysis with nearest-neighbor color mapping
+  - Stability reordering for optimal flip-first quality
+  - C64-style border color cycling during loading
+- **Learning focus:** Combining multiple V6355D techniques in one program
+- **Good for:** Understanding the challenges of mixed palette operations
+
+**3-Zone Screen Layout:**
+```
+ Line   0 ┌──────────────────────┐
+          │  ZONE 1: RASTER BARS │  40 lines — E0 only, bar 1 (red)
+ Line  39 │  (write 2 bytes/line)│
+          ├──────────────────────┤
+ Line  40 │                      │
+          │  ZONE 2: BMP IMAGE   │  120 lines — E2-E7, flip-first
+          │  (write 12 bytes/line)│
+ Line 159 │                      │
+          ├──────────────────────┤
+ Line 160 │  ZONE 3: RASTER BARS │  40 lines — E0 only, bar 2 (cyan)
+ Line 199 │  (write 2 bytes/line)│
+          └──────────────────────┘
+```
+
+**What happens during HBLANK (per zone):**
+- **Bar zones (1 & 3):** Open palette at E0 → write R (from AH register) → write G|B (from pre-fetched `[bar_gb]`) → close. ~55 cycles, fits within ~108 cycle HBLANK.
+- **Image zone (2):** FLIP palette select → open at E2 → REP OUTSB 12 bytes → close. Flip fits in HBLANK; 12-byte stream spills into visible area but targets the inactive palette set.
+
+**What happens during VBLANK:**
+- Update bar sine-wave positions
+- Build scanline_colors table (200 × 2 bytes)
+- wait_vblank synchronizes: waits for VBLANK start, then waits for VBLANK end, so render_frame begins at exactly line 0
+
+**What works:**
+- Raster bars display perfectly — no shimmer, no artifacts
+- Register pre-fetch eliminates left-edge shimmer (was caused by indexed memory reads during HBLANK)
+- Image displays flicker-free with 3 colors per scanline via flip-first
+- Smooth sine-wave bar animation
+- SPACE toggles bars on/off
+
+**What was tried and didn't work (development history):**
+- Skip-if-same optimization (only writing E0 on scanlines where color changes) caused blinking. Writing every scanline is required for stability.
+- OUTSB burst technique (palram7b's DX=0xDD approach) for bar zones caused blinking — possibly because switching DX between 0xDD and 0xDE across zones disrupts V6355D state.
+- Using BP or BX registers for pre-fetch instead of AH + [bar_gb] also caused blinking.
+
+**Key fix:** Pre-fetching the bar color bytes (R into AH, G|B into `[bar_gb]`) before the HBLANK wait loop — so the critical burst uses a register copy + 1 fixed-address memory read instead of 2 indexed reads off DI — fixed the blinking. The exact mechanism is unknown: the V6355D tech ref says system RAM has no bus contention, so the cycle savings shouldn't matter, yet empirically this change is what made palram9 flicker-free.
+
+**Controls:**
+- `SPACE` - Toggle raster bar animation on/off
+- `ESC` - Exit to DOS
+
+**Usage:**
+```
+PALRAM9 image.bmp
+```
+
 ## Why Palette RAM Instead of PORT_COLOR?
 
 The V6355D offers two raster bar techniques:
@@ -240,6 +343,9 @@ nasm -f bin -o palram4.com palram4.asm
 nasm -f bin -o palram5.com palram5.asm
 nasm -f bin -o palram6.com palram6.asm
 nasm -f bin -o palram7.com palram7.asm
+nasm -f bin -o palram7b.com palram7b.asm
+nasm -f bin -o palram8.com palram8.asm
+nasm -f bin -o palram9.com palram9.asm
 ```
 
 ### Copy to floppy:
@@ -256,6 +362,9 @@ A:\palram4.com
 A:\palram5.com
 A:\palram6.com
 A:\palram7 image.bmp
+A:\palram7b.com
+A:\palram8.com
+A:\palram9 image.bmp
 ```
 
 ## Learning Progression
@@ -267,6 +376,9 @@ A:\palram7 image.bmp
 5. **Experiment with `palram5.asm`** - Explore horizontal timing limits and advanced techniques
 6. **Study `palram6.asm`** - Understand why multi-color rasters are limited to 1 entry per HBLANK
 7. **Try `palram7.asm`** - See palette RAM rasters combined with BMP image display
+8. **Try `palram7b.asm`** - See the same raster bars in CGA mode 4 (no BMP needed)
+9. **Try `palram8.asm`** - Confirm palette RAM gradient works in CGA mode 4
+10. **Try `palram9.asm`** - See flip-first BMP display combined with raster bar animation (3-zone split)
 
 ## Educational Insights
 
@@ -283,6 +395,7 @@ A:\palram7 image.bmp
 4. **Creative limitations breed innovation** - 16 colors → 512 through clever timing
 5. **Polling vs Interrupts** - V6355D requires polling HSYNC, introducing unavoidable jitter. Timer interrupt methods (8088mph, Area 5150, Kefrens) use PIT to achieve zero-jitter scanline sync on CGA.
 6. **Palette pipeline limits multi-color rasters** - V6355D can only cleanly change 1 palette entry per HBLANK. Writing 2+ entries causes visible corruption on adjacent entries due to internal palette pipeline behavior.
+7. **Palette RAM is mode-independent** - V6355D palette registers (0x3DD/0x3DE) work identically in CGA mode 4 (320x200) and the hidden 160x200x16 mode. The technique is chip-dependent (V6355D), not mode-dependent (verified March 2026 with palram8).
 
 ### Advanced Timing Techniques
 **Polling Method (used in these demos):**
