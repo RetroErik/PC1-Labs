@@ -58,6 +58,11 @@ Per-scanline palette RAM manipulation — changing RGB values during horizontal 
 
 - `palram1.asm` — Basic static rainbow gradient
 - `palram2.asm` through `palram6.asm` — Increasingly advanced palette techniques
+- `palram7.asm` — BMP image + animated raster bars (hidden mode)
+- `palram7b.asm` — Raster bars in CGA mode 4 with skip-if-same optimization — proves palette RAM is mode-independent
+- `palram8.asm` — Palette RAM gradient in CGA mode 4 — confirms V6355D palette ports work identically across video modes
+- `palram9.asm` — BMP image (CGA palette flipping) + raster bars using 3-zone split architecture
+- `palram9b.asm` — Unified E0+E2-E7 streaming — eliminates zones, bars and CGA palette flipping coexist on every scanline via REP OUTSB
 - `colorbars.asm` — Color bar test pattern
 
 ### 06-pit-raster-timing

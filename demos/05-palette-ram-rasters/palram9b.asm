@@ -1,14 +1,20 @@
 ; ============================================================================
-; PALRAM9.ASM - BMP Image + Animated Raster Bars (Flip-First + Entry 0)
-;     CGA Flip: E2-7 written every scanline — no skip-if-same optimization
-;     Raster Bars: Entry 0 (background) written every scanline in bar zones
+; PALRAM9B.ASM - BMP Image + Animated Raster Bars (Unified E0+E2-E7 Stream)
+;               Combined 16-byte palette write per scanline — no zone split
 ; ============================================================================
 ;
-; Combines pc1-bmp4's flip-first 3-color-per-scanline BMP display with
-; palram7b's dancing sine-wave raster bars on the background (entry 0).
-; Unlike palram7b, E0 must be written on every scanline in the bar zones
-; (not just lines where the color changes) to avoid timing-drift blinking
-; at zone transitions. See "THE BIG DISCOVERY" section below.
+; CONFIRMED WORKING on real PC1 hardware (March 2026).
+; Based on palram9, but eliminates the 3-zone architecture.
+; Instead of separate bar zones (E0 only) and image zone (E2-E7 only),
+; every scanline writes ALL entries — E0 through E7 — in a single
+; palette write session opened at 0x40. This allows raster bars and
+; image content to coexist on the same scanlines.
+;
+; TECHNIQUE ORIGIN: PC1-BMP v6.0 "E0 Reprogramming" proved that a single
+; 0x40-opened write session can stream 16 bytes (E0-E7) per scanline.
+; E0 completes within HBLANK (~55 cycles). E1 is unused in CGA mode 4.
+; E2-E7 spill into the visible area but target the inactive palette set
+; (flip-first technique), so no artifacts appear.
 ;
 ; The BMP image is displayed in CGA mode 4 (320x200x4) using the
 ; flip-first palette technique from pc1-bmp4: per-scanline palette flip
@@ -19,191 +25,84 @@
 ; bounce via sine wave and redefine entry 0 (background/border) per
 ; scanline. The bars appear in the BLACK/background areas of the image,
 ; creating a colorful light-beam effect through the dark regions while
-; preserving the actual image content.
+; preserving the actual image content. Because there is no zone split,
+; bars can sweep across the image area itself.
 ;
 ; ============================================================================
-; SCREEN LAYOUT — 3-Zone Symmetric Split
+; UNIFIED RENDER — No Zone Split
 ; ============================================================================
 ;
-; The 200 visible scanlines are divided into three zones:
+; All 200 visible scanlines are treated identically. Each scanline:
+;   1. Waits for HBLANK
+;   2. Flips palette select (PAL_ODD ↔ PAL_EVEN)
+;   3. Opens palette at E0 (0x40)
+;   4. Streams 16 bytes via REP OUTSB: E0, E1, E2-E7
+;   5. Closes palette (0x80)
 ;
-;   Zone 1 — RASTER BARS (lines 0-39, top 40 lines)
-;     Only palette entry 0 (E0) is written. No palette flip.
-;     Bar 1 (red gradient) bounces within this zone via sine wave.
+; The 16-byte palette_stream is pre-built:
+;   - Bytes  0-1:  E0 (background) — updated every frame from bar data
+;   - Bytes  2-3:  E1 (unused, always zero)
+;   - Bytes  4-15: E2-E7 (flip-first interleaved image colors, static)
 ;
-;   Zone 2 — IMAGE (lines 40-159, middle 120 lines)
-;     Palette entries E2-E7 are written using flip-first technique.
-;     The BMP image is displayed with 3 unique colors per scanline.
-;     No E0 writes — entry 0 stays black (reset at end of frame).
-;
-;   Zone 3 — RASTER BARS (lines 160-199, bottom 40 lines)
-;     Same as Zone 1. Bar 2 (cyan gradient) bounces here.
-;
-; Each zone writes ONLY E0 or ONLY E2-E7, never both on the same
-; scanline. This separation is the key to avoiding flicker:
-;   - E0 writes (2 bytes) MUST complete within HBLANK (~72-80 cycles)
-;   - E2-E7 writes (12 bytes) safely spill past HBLANK because
-;     flip-first targets the inactive palette set
-;   - Mixing both on one scanline would overflow the HBLANK window
+; Per-frame update: update_stream_e0 copies the 2-byte bar color for
+; each scanline into the E0 slot of each 16-byte record. Only 400
+; bytes of scattered writes per frame (200 lines × 2 bytes).
 ;
 ; ============================================================================
-; HBLANK BEHAVIOR — What Happens During Horizontal Blanking
+; HBLANK TIMING — Combined E0+E2-E7 Fit
 ; ============================================================================
 ;
-; The CRT beam sweeps left-to-right drawing pixels, then briefly returns
-; (horizontal blanking / HBLANK). During HBLANK we can safely change
-; palette entries without visible artifacts.
+; After HBLANK detected:
+;   Flip palette       ~12 cycles   (running: 12)
+;   xchg bl,bh         ~3 cycles    (running: 15)
+;   Open 0x40          ~12 cycles   (running: 27)
+;   PUSH CX            ~4 cycles    (running: 31)
+;   MOV CX,16          ~4 cycles    (running: 35)
+;   REP OUTSB ×16      ~224 cycles  (running: 259) ← E0-E7 all 16 bytes
+;     E0 completes     at ~63 cycles from HBLANK    ← within HBLANK
+;     E1 completes     at ~91 cycles                ← borderline (unused)
+;     E2-E7            remainder                    ← targets inactive set
+;   POP CX             ~4 cycles    (running: 263)
+;   Close 0x80         ~12 cycles   (running: 275)
 ;
-; HBLANK detection: poll PORT_STATUS (0xDA) bit 0:
-;   - Wait for bit 0 = 0 (visible area / HSYNC low)
-;   - Wait for bit 0 = 1 (HBLANK started / HSYNC high)
-;   - Immediately write palette data
-;
-; BAR ZONES (Zones 1 & 3) — E0 write during HBLANK:
-;   Before the wait loop, color values are pre-fetched:
-;     AH = R byte (loaded from scanline_colors table)
-;     [bar_gb] = G|B byte (saved to fixed memory address)
-;   After HBLANK detected:
-;     out 0xDD, 0x40     ; Open palette at entry 0
-;     out 0xDE, AH        ; Write R (from register — instant)
-;     out 0xDE, [bar_gb]  ; Write G|B (from pre-fetched memory)
-;     out 0xDD, 0x80      ; Close palette
-;   Total: ~55 cycles — fits within ~72-80 cycle HBLANK window.
-;   Pre-fetching R into AH before the wait loop avoids indexed
-;   memory reads during the critical HBLANK window.
-;
-; IMAGE ZONE (Zone 2) — Flip-first E2-E7 write:
-;   After HBLANK detected:
-;     out 0xD9, PAL_ODD/PAL_EVEN  ; FLIP palette select FIRST
-;     out 0xDD, 0x44               ; Open at entry 2
-;     REP OUTSB (12 bytes)         ; Stream E2-E7 data
-;     out 0xDD, 0x80               ; Close palette
-;   The flip happens within HBLANK. The 12-byte REP OUTSB (~168 cycles)
-;   spills into the visible area BUT writes to the INACTIVE palette set
-;   (the one not currently being displayed), so no artifacts appear.
+; E0 completes at ~55 cycles, within the ~72-80 cycle HBLANK window.
+; E1 is not displayed in CGA mode 4, so spill is harmless.
+; E2-E7 write to the inactive palette (flip-first), no artifacts.
 ;
 ; ============================================================================
-; VBLANK BEHAVIOR — What Happens During Vertical Blanking
+; WHAT WORKS / EXPECTED ARTIFACTS (verified on real PC1, March 2026)
 ; ============================================================================
 ;
-; After line 199, the CRT enters vertical blanking (VBLANK). During this
-; time no pixels are drawn. The main loop uses this time to:
-;
-;   1. Update raster bar positions (sine wave advancement)
-;   2. Build the scanline_colors table (pre-compute 200 × 2 byte pairs)
-;   3. Wait for VBLANK to END (visible area about to start)
-;
-; wait_vblank ensures render_frame begins at exactly line 0:
-;   - First waits for VBLANK to START (bit 3 = 1) — ensures we're
-;     actually in the blanking period
-;   - Then waits for VBLANK to END (bit 3 = 0) — returns at the
-;     first visible scanline
-;
-; This ordering is critical. The old approach (wait for end, then start)
-; would skip an entire frame of 200 visible lines with no palette
-; programming, causing 30 Hz blinking.
-;
-; End-of-frame cleanup (done at the end of render_frame, after line 199):
-;   - Reset E0 to black (0,0) so the image zone background is black
-;   - Restore PAL_EVEN as the active palette select
+;   ✅ CGA palette flip is 100% stable — no flicker, no shimmer
+;   ✅ Raster bars display across entire screen, overlapping with image
+;   ✅ Bars show through wherever pixel value 0 (background) appears
+;   ✅ Image displays correctly with 3 colors per scanline via flip-first
+;   ⚠️ Tiny left-edge artifact on the first few pixels of raster bar lines
+;     caused by E0 write completing at the edge of HBLANK window (~55 of
+;     ~72-80 available cycles). This is inherent to E0 streaming and cannot
+;     be eliminated (4 OUT instructions are the minimum for E0 open/write).
+;   ⚠️ Colored border on bar lines (E0 affects border area too — CGA rule)
 ;
 ; ============================================================================
-; WHAT WORKS
+; SKIP-IF-SAME — Why It's Not Used Here
 ; ============================================================================
 ;
-;   - Raster bars display with smooth animation, no shimmer or blinking,
-;     but with a tiny artifact on the first few pixels of each bar
-;     scanline (see NOTE below)
-;   - Pre-fetching R into AH and G|B into [bar_gb] before the HBLANK
-;     wait loop eliminates the full-width shimmer that occurred when
-;     memory reads happened during the critical HBLANK window
-;   - Image displays correctly with 3 colors per scanline via flip-first
-;   - Image area is flicker-free — no blinking or artifacts
-;   - Bars animate smoothly with sine-wave bounce
-;   - Toggle bars on/off with SPACE key
-;   - BMP loading with two-pass analysis, nearest-neighbor color mapping
+;   palram7b uses skip-if-same for E0: if the bar color hasn't changed
+;   from the previous line, it skips all port writes (0 OUTs). This works
+;   because palram7b only writes E0 — there's no image, no flip, no E2-E7.
 ;
-;   NOTE: There is a tiny visual imperfection — the first few pixels on
-;   the left edge of each raster bar scanline may show a brief color
-;   glitch. This is caused by the E0 palette write completing at the
-;   very edge of the HBLANK window (~55 cycles of port I/O out of
-;   ~72-80 available). The close instruction (0x80 to 0xDD) finishes
-;   just as the beam enters the visible area, causing a few pixels to
-;   catch the transition. This is an inherent trade-off of writing E0
-;   on every scanline and cannot be eliminated without fewer OUT
-;   instructions (the V6355D requires all 4) or a wider HBLANK window
-;   (fixed by hardware).
+;   In palram9b, E0 is embedded in a 16-byte REP OUTSB stream
+;   (E0+E1+E2-E7). You can't skip E0 without breaking the stream — the
+;   V6355D auto-increments through entries, so byte positions are fixed.
+;   And E2-E7 must be written every line for the flip-first image display.
 ;
-; ============================================================================
-; THE BIG DISCOVERY — E0 Must Be Written On Every Scanline
-; ============================================================================
+;   The only way to skip E0 selectively is to go back to ZONES: separate
+;   the E0-only scanlines from E2-E7 scanlines, so E0 can use its own
+;   open/write/close cycle with skip-if-same. But that reintroduces the
+;   palram9 zone architecture and prevents bars from overlapping the image.
 ;
-;   In palram7b (raster bars without a BMP image), performance was
-;   optimized with a "skip-if-same" approach: E0 was only written on
-;   scanlines where the bar color actually changed. Since a bar only
-;   occupies ~14-28 of the 200 lines, the vast majority of scanlines
-;   were skipped, meaning the HBLANK write path ran on very few lines.
-;   This worked perfectly in palram7b's single-zone design.
-;
-;   In palram9, the same skip-if-same approach caused severe blinking.
-;   The problem is timing drift at zone transitions: the "write" path
-;   and the "skip" path have different execution times. When the code
-;   transitions from Zone 1 (bars) to Zone 2 (image), the variable
-;   timing from write-vs-skip decisions creates a different offset into
-;   the scanline each frame. This frame-to-frame jitter at the zone
-;   boundary causes visible blinking.
-;
-;   The solution — and palram9's defining constraint — is to write E0
-;   on EVERY scanline in the bar zones, even when the color hasn't
-;   changed. This makes every scanline take the same code path with
-;   identical timing, eliminating the jitter at zone transitions.
-;
-;   The trade-off: writing E0 on every line means 4 OUT instructions
-;   (~55 cycles) execute during every HBLANK in the bar zones. Since
-;   HBLANK is only ~72-80 cycles, the write barely fits, and the last
-;   few cycles spill past the start of the visible area — causing the
-;   tiny left-edge artifact described above. This is the price of
-;   flicker-free multi-zone raster bars on the V6355D.
-;
-; ============================================================================
-; WHAT WAS TRIED AND DIDN'T WORK (development history)
-; ============================================================================
-;
-;   These approaches were tested during development and caused problems:
-;
-;   - Skip-if-same optimization (only writing E0 on scanlines where the
-;     color changes) caused blinking in palram9's multi-zone layout.
-;     See "THE BIG DISCOVERY" above for full explanation.
-;
-;   - OUTSB burst technique (palram7b's DX=0xDD approach) for bar zones
-;     caused blinking — possibly because switching DX between 0xDD
-;     (bar zones) and 0xDE (image zone) disrupts V6355D state.
-;
-;   - Using BP or BX registers for pre-fetch instead of AH + [bar_gb]
-;     also caused blinking in the bar zones.
-;
-;   - Partial E0 writes — writing only the R byte (for the red bar) or
-;     only the G|B byte (for the cyan bar) and closing the palette
-;     session. The V6355D requires both bytes to be written for each
-;     palette entry. Writing only one byte and closing with 0x80 causes
-;     the entry to vanish entirely (the bar disappears). This is a
-;     hard requirement: open (0x40), write R, write G|B, close (0x80)
-;     — all four OUTs are mandatory.
-;
-;   - Replacing memory reads with immediate zeros (e.g., XOR AL,AL
-;     instead of MOV AL,[bar_gb] for the unused color channel) was
-;     tested to try to reduce the left-edge artifact. The code worked
-;     correctly, but the cycle savings (~4 cycles per scanline) were
-;     too small to visibly reduce the artifact. The bottleneck is the
-;     4 OUT instructions themselves, not the data loads between them.
-;
-;   KEY FIX: Pre-fetching the bar color bytes (R into AH, G|B into
-;   [bar_gb]) BEFORE the HBLANK wait loop — so the critical burst uses
-;   a register copy + 1 fixed-address memory read instead of 2 indexed
-;   reads off DI — fixed the blinking. The exact mechanism is unknown:
-;   the V6355D tech ref says system RAM has no bus contention, so the
-;   cycle savings from register vs indexed addressing shouldn't matter,
-;   yet empirically this change is what made palram9 flicker-free.
+;   Trade-off: unified stream = simple code + bars anywhere on screen,
+;   but every line writes all 16 bytes even when E0 = black (no bar).
 ;
 ; ============================================================================
 ; TECHNIQUES USED
@@ -212,23 +111,12 @@
 ;   From pc1-bmp4: flip-first palette, 3 colors/line, REP OUTSB streaming,
 ;     two-pass BMP analysis, stability reordering, DX=0xDE permanently
 ;   From palram7b: sine-wave bounce, dual bars (red + cyan)
-;   Combined: 3-zone render — bars frame the image symmetrically
-;   New: register pre-fetch (AH + [bar_gb]) to avoid memory reads in HBLANK
-;
-; ============================================================================
-; PALRAM9B UPDATE (March 2026)
-; ============================================================================
-;
-;   palram9b.asm eliminates the 3-zone split entirely. It streams all 16
-;   bytes (E0+E1+E2-E7) in a single 0x40 write session on every scanline,
-;   allowing raster bars and image content to coexist on the SAME scanlines.
-;   Tested on real PC1 hardware: CGA palette flip is 100% stable. Only
-;   artifact is a tiny glitch on the first few pixels of bar lines (E0
-;   write completing at the edge of HBLANK). The 3-zone separation in
-;   this file was a safe but unnecessary constraint.
+;   From PC1-BMP v6.0: combined E0+E2-E7 in single 0x40 write session
+;   New: unified render loop (no zones), per-frame E0 slot update
 ;
 ; Controls:
 ;   SPACE : Toggle raster bar animation on/off
+;   S     : Toggle vblank sync on/off
 ;   ESC   : Exit to DOS
 ;
 ; Written for NASM assembler
@@ -241,13 +129,13 @@
 ; BUILD
 ; ============================================================================
 ;
-;   nasm -f bin -o palram9.com palram9.asm
+;   nasm -f bin -o palram9b.com palram9b.asm
 ;
 ; ============================================================================
 ; USAGE
 ; ============================================================================
 ;
-;   palram9 filename.bmp
+;   palram9b filename.bmp
 ;
 ; ============================================================================
 
@@ -292,7 +180,7 @@ PAL_EVEN        equ 0x00        ; Palette 0: entries {0,2,4,6}
 PAL_ODD         equ 0x20        ; Palette 1: entries {0,3,5,7}
 
 ; ============================================================================
-; Raster Bar Configuration (from palram7b)
+; Raster Bar Configuration
 ; ============================================================================
 
 LINES_PER_COLOR equ 1           ; Scanlines per gradient color
@@ -305,13 +193,6 @@ BAR2_SPEED      equ 3
 ; Per-bar starting phase (0-255)
 BAR1_PHASE      equ 0
 BAR2_PHASE      equ 85          ; 1/3 cycle offset (120 degrees)
-
-; Screen zone boundaries (Option B: symmetric split)
-IMAGE_TOP       equ 40          ; First image scanline
-IMAGE_BOTTOM    equ 160         ; First bottom-bar scanline
-BAR_TOP_LINES   equ 40          ; Lines in top bar zone
-IMAGE_LINES     equ 120         ; Lines in image zone (IMAGE_BOTTOM - IMAGE_TOP)
-BAR_BOT_LINES   equ 40          ; Lines in bottom bar zone
 
 ; ============================================================================
 ; Main Program Entry Point
@@ -439,17 +320,8 @@ main:
     ; --- Reorder by stability ---
     call reorder_by_stability
 
-    ; --- Build per-scanline palette stream (E2-E7, 12 bytes/line) ---
+    ; --- Build per-scanline palette stream (E0-E7, 16 bytes/line) ---
     call build_palette_stream
-
-    ; --- Set CGA mode 4 ---
-    mov ax, 0x0004
-    int 0x10
-    cld
-
-    ; --- Blank video during VRAM write ---
-    mov al, CGA_MODE4_OFF
-    out PORT_MODE, al
 
     ; --- Seek back to pixel data for Pass 2 ---
     mov bx, [file_handle]
@@ -458,13 +330,25 @@ main:
     mov ax, 0x4200
     int 0x21
 
-    ; --- PASS 2: Remap pixels and write to CGA VRAM ---
-    call render_to_vram
+    ; --- PASS 2: Remap pixels to RAM buffer (splash stays visible) ---
+    call render_to_buffer
 
     ; --- Close file ---
     mov bx, [file_handle]
     mov ah, 0x3E
     int 0x21
+
+    ; --- Set CGA mode 4 + blank video ---
+    mov ax, 0x0004
+    int 0x10
+    cld
+    mov al, CGA_MODE4_OFF
+    out PORT_MODE, al
+
+    ; --- Copy buffer to VRAM (fast REP MOVSW, ~8ms) ---
+    push ds
+    pop es                      ; Restore ES = DS after INT 10h
+    call copy_buffer_to_vram
 
     ; --- Program initial palette ---
     call program_initial_palette
@@ -488,23 +372,21 @@ main:
     cmp byte [bars_enabled], 0
     je .skip_bar_update
 
-    ; Update bar 1 (top zone: lines 0-39)
+    ; Update bar 1 (full-screen bounce, top-biased)
     add byte [bar1_sine_idx], BAR1_SPEED
     mov al, [bar1_sine_idx]
     xor ah, ah
     mov si, ax
-    mov al, [sine_table + si]
-    shr al, 2                   ; 0-97 → 0-24 (fits in 40-line zone)
+    mov al, [sine_table + si]  ; Range: 3-97
     mov [bar1_y], al
 
-    ; Update bar 2 (bottom zone: lines 160-199)
+    ; Update bar 2 (full-screen bounce, bottom-biased)
     add byte [bar2_sine_idx], BAR2_SPEED
     mov al, [bar2_sine_idx]
     xor ah, ah
     mov si, ax
-    mov al, [sine_table + si]
-    shr al, 2                   ; 0-97 → 0-24
-    add al, IMAGE_BOTTOM        ; 160 + 0-24 = 160-184
+    mov al, [sine_table + si]  ; Range: 3-97
+    add al, 90                 ; Range: 93-187
     mov [bar2_y], al
 
     call build_scanline_table
@@ -515,7 +397,11 @@ main:
     call clear_scanline_table
 
 .do_render:
+    call update_stream_e0       ; Copy bar colors into palette stream E0 slots
+    cmp byte [sync_enabled], 0
+    je .no_sync
     call wait_vblank
+.no_sync:
     call render_frame
 
     ; --- Check keyboard ---
@@ -523,8 +409,16 @@ main:
     cmp al, 0xFF
     je .exit_program
     cmp al, 0x20                ; SPACE = toggle bars
-    jne .display_loop
+    jne .not_space
     xor byte [bars_enabled], 1
+    jmp .display_loop
+.not_space:
+    cmp al, 's'                 ; S = toggle sync
+    je .toggle_sync
+    cmp al, 'S'
+    jne .display_loop
+.toggle_sync:
+    xor byte [sync_enabled], 1
     jmp .display_loop
 
 .exit_program:
@@ -990,7 +884,33 @@ reorder_by_stability:
     ret
 
 ; ============================================================================
-; build_palette_stream - Flip-first interleaved V6355D data (E2-E7)
+; build_palette_stream - Unified V6355D data (E0-E7, 16 bytes/line)
+; ============================================================================
+;
+; Builds 16-byte records for all 200 scanlines:
+;   Bytes  0-1:  E0 = black placeholder (updated per-frame by update_stream_e0)
+;   Bytes  2-3:  E1 = zeros (unused entry in CGA mode 4)
+;   Bytes  4-15: E2-E7 = flip-first interleaved image colors (static)
+;
+; E2-E7 interleaving (Simone-calibrated flip-first):
+;
+;   Even line N (just flipped to pal 1 — entries 3,5,7 now active):
+;     E2 = line N+2 color A  (inactive, pre-load for next even line)
+;     E3 = line N+1 color A  (active, same-value passthrough)
+;     E4 = line N+2 color B  (inactive, pre-load)
+;     E5 = line N+1 color B  (active, passthrough)
+;     E6 = line N+2 color C  (inactive, pre-load)
+;     E7 = line N+1 color C  (active, passthrough)
+;
+;   Odd line N (just flipped to pal 0 — entries 2,4,6 now active):
+;     E2 = line N+1 color A  (active, same-value passthrough)
+;     E3 = line N+2 color A  (inactive, pre-load for next odd line)
+;     E4 = line N+1 color B  (active, passthrough)
+;     E5 = line N+2 color B  (inactive, pre-load)
+;     E6 = line N+1 color C  (active, passthrough)
+;     E7 = line N+2 color C  (inactive, pre-load)
+;
+; Total: 200 lines × 16 bytes = 3200 bytes.
 ; ============================================================================
 build_palette_stream:
     push ax
@@ -1004,6 +924,12 @@ build_palette_stream:
     mov di, palette_stream
 
 .bps_loop:
+    ; E0: black placeholder (updated per-frame by update_stream_e0)
+    mov word [di], 0
+
+    ; E1: unused entry (always zero)
+    mov word [di + 2], 0
+
     ; Far line (N+2): inactive pre-load target
     mov bx, cx
     add bx, 2
@@ -1049,37 +975,37 @@ build_palette_stream:
     mov bl, [bps_cur_a]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di], ax
+    mov [di + 4], ax
 
     xor bx, bx
     mov bl, [bps_nxt_a]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 2], ax
+    mov [di + 6], ax
 
     xor bx, bx
     mov bl, [bps_cur_b]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 4], ax
+    mov [di + 8], ax
 
     xor bx, bx
     mov bl, [bps_nxt_b]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 6], ax
+    mov [di + 10], ax
 
     xor bx, bx
     mov bl, [bps_cur_c]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 8], ax
+    mov [di + 12], ax
 
     xor bx, bx
     mov bl, [bps_nxt_c]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 10], ax
+    mov [di + 14], ax
 
     jmp .bps_next
 
@@ -1090,40 +1016,40 @@ build_palette_stream:
     mov bl, [bps_nxt_a]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di], ax
+    mov [di + 4], ax
 
     xor bx, bx
     mov bl, [bps_cur_a]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 2], ax
+    mov [di + 6], ax
 
     xor bx, bx
     mov bl, [bps_nxt_b]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 4], ax
+    mov [di + 8], ax
 
     xor bx, bx
     mov bl, [bps_cur_b]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 6], ax
+    mov [di + 10], ax
 
     xor bx, bx
     mov bl, [bps_nxt_c]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 8], ax
+    mov [di + 12], ax
 
     xor bx, bx
     mov bl, [bps_cur_c]
     shl bx, 1
     mov ax, [v6355_pal + bx]
-    mov [di + 10], ax
+    mov [di + 14], ax
 
 .bps_next:
-    add di, 12
+    add di, 16                  ; 16 bytes per line
     inc cx
     cmp cx, 200
     jb .bps_loop
@@ -1137,19 +1063,15 @@ build_palette_stream:
     ret
 
 ; ============================================================================
-; render_to_vram - Pass 2: Read BMP, remap pixels, write to CGA VRAM
+; render_to_buffer - Pass 2: Read BMP, remap pixels, write to RAM buffer
 ; ============================================================================
-render_to_vram:
+render_to_buffer:
     push ax
     push bx
     push cx
     push dx
     push si
     push di
-    push es
-
-    mov ax, VIDEO_SEG
-    mov es, ax
 
     mov word [current_row], 199
 
@@ -1161,7 +1083,7 @@ render_to_vram:
 
     call build_remap_table
 
-    ; CGA VRAM offset (interlaced layout)
+    ; CGA interlaced offset into RAM buffer
     mov ax, [current_row]
     push ax
     shr ax, 1
@@ -1173,6 +1095,7 @@ render_to_vram:
     jz .rv_even
     add di, 0x2000
 .rv_even:
+    add di, vram_buffer         ; DI = offset within DS
 
     mov si, row_buffer
     mov bx, remap_table
@@ -1211,7 +1134,8 @@ render_to_vram:
     or dh, al
 
     mov al, dh
-    stosb
+    mov [di], al
+    inc di
     loop .rv_convert_4
     jmp .rv_convert_done
 
@@ -1239,7 +1163,8 @@ render_to_vram:
     or dh, al
 
     mov al, dh
-    stosb
+    mov [di], al
+    inc di
     loop .rv_convert_8
 
 .rv_convert_done:
@@ -1250,12 +1175,36 @@ render_to_vram:
     jmp .rv_loop
 
 .rv_done:
-    pop es
     pop di
     pop si
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; ============================================================================
+; copy_buffer_to_vram - Fast REP MOVSW from vram_buffer to CGA VRAM
+; ============================================================================
+copy_buffer_to_vram:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+
+    mov ax, VIDEO_SEG
+    mov es, ax
+    mov si, vram_buffer
+    xor di, di
+    mov cx, 8192                ; 16384 bytes / 2 = 8192 words
+    cld
+    rep movsw
+
+    pop es
+    pop di
+    pop si
+    pop cx
     pop ax
     ret
 
@@ -1561,7 +1510,7 @@ build_scanline_table:
     mov cx, SCREEN_HEIGHT
     rep stosw
 
-    ; Draw both bars (separate zones, no overlap possible)
+    ; Draw both bars (may overlap — cyan drawn second overwrites)
     call draw_red_bar
     call draw_cyan_bar
 
@@ -1654,162 +1603,101 @@ draw_cyan_bar:
     ret
 
 ; ============================================================================
+; update_stream_e0 - Copy bar colors into palette stream E0 slots
 ; ============================================================================
-; render_frame — Per-scanline palette programming across 3 zones
+;
+; Called once per frame, after build_scanline_table. Copies the 2-byte
+; bar color (R, G|B) from scanline_colors[N] into palette_stream[N*16]
+; for all 200 scanlines. Only 400 bytes of scattered writes per frame.
+;
+; When bars are disabled, scanline_colors is all black (from
+; clear_scanline_table), so E0 slots get black — image displays normally.
+; ============================================================================
+update_stream_e0:
+    push ax
+    push cx
+    push si
+    push di
+
+    mov si, scanline_colors
+    mov di, palette_stream
+    mov cx, SCREEN_HEIGHT
+
+.use_loop:
+    lodsw                       ; AX = R, GB from scanline_colors
+    mov [di], ax                ; Store at E0 slot (offset 0-1 of 16-byte record)
+    add di, 16                  ; Next 16-byte record
+    loop .use_loop
+
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; ============================================================================
+; render_frame — Unified per-scanline palette programming (E0-E7)
 ; ============================================================================
 ;
 ; Called once per frame, immediately after wait_vblank returns (line 0).
-; Programs the V6355D palette for all 200 visible scanlines:
+; Programs the V6355D palette for all 200 visible scanlines using a
+; single unified loop — no zone split.
 ;
-; ZONE 1 — Top raster bars (lines 0 to 39):
-;   Writes entry 0 (E0) only. Two bytes: R and G|B.
-;   Color is pre-fetched into AH (R) and [bar_gb] (G|B) BEFORE the
-;   HBLANK wait loop, so the critical burst uses a register read (AH)
-;   and a single fixed-address memory read ([bar_gb]) — no indexed
-;   memory access during the tight HBLANK window.
-;   No palette flip occurs. E0 is shared by both palette selects.
+; Each scanline:
+;   1. Wait for HBLANK
+;   2. FLIP palette select (PAL_ODD ↔ PAL_EVEN) — first, nanosecond-critical
+;   3. Open palette at E0 (0x40)
+;   4. Stream 16 bytes via REP OUTSB: E0(2) + E1(2) + E2-E7(12)
+;   5. Close palette (0x80)
 ;
-; ZONE 2 — Image (lines 40 to 159):
-;   Writes entries E2-E7 using flip-first technique. 12 bytes per line.
-;   First flips the palette select (PAL_ODD ↔ PAL_EVEN), then streams
-;   E2-E7 via REP OUTSB. The flip targets HBLANK; the 12-byte stream
-;   spills into visible area but writes to the inactive palette set.
-;   DI advances past the unused scanline_colors slot for each line.
-;
-; ZONE 3 — Bottom raster bars (lines 160 to 199):
-;   Identical technique to Zone 1. Bar 2 (cyan) bounces here.
-;
-; End of frame:
-;   Reset E0 to black and restore PAL_EVEN. This ensures the image
-;   zone (which doesn't write E0) has a black background, and the
-;   palette select starts clean for the next frame.
+; E0 (bar color) completes within HBLANK (~55 cycles).
+; E1 (unused) spills slightly past HBLANK — harmless, no pixels use E1.
+; E2-E7 (image colors) write to the INACTIVE palette set (flip-first).
 ;
 ; Register plan:
-;   DX = PORT_REG_DATA (0xDE) — permanent across all zones
-;   SI = palette_stream pointer (image zone, advanced by REP OUTSB)
-;   DI = scanline_colors pointer (all zones, advanced 2 bytes/line)
+;   DX = PORT_REG_DATA (0xDE) — permanent, used by OUTSB
+;   SI = palette_stream pointer — advances 16 bytes per line via REP OUTSB
 ;   CX = scanline counter (counts down from 200)
-;   BL/BH = PAL_ODD/PAL_EVEN (image zone flip-first only)
-;   AH = pre-fetched R byte (bar zones, survives wait loop)
+;   BL/BH = PAL_ODD/PAL_EVEN (alternating flip)
 ; ============================================================================
 render_frame:
     cli
     cld
 
-    mov si, palette_stream + IMAGE_TOP * 12
-    mov di, scanline_colors
+    mov si, palette_stream
     mov cx, SCREEN_HEIGHT
     mov dx, PORT_REG_DATA       ; DX = 0xDE permanently
     mov bl, PAL_ODD
     mov bh, PAL_EVEN
 
-    ; ==================================================================
-    ; ZONE 1: Top raster bars (lines 0 to IMAGE_TOP-1)
-    ; Pre-fetch into registers, then write from registers during HBLANK.
-    ; ==================================================================
-.rf_bar_top:
-    ; Pre-fetch color into registers (during visible area — free time)
-    mov ah, [di]                ; AH = R (survives wait loop)
-    mov al, [di + 1]
-    mov [bar_gb], al            ; Save G|B in memory (before wait)
-    add di, 2
-
-    ; Wait for HBLANK
-.rf_bt_wait_low:
+.rf_scanline:
+.rf_wait_low:
     in al, PORT_STATUS
     test al, 0x01
-    jnz .rf_bt_wait_low
-.rf_bt_wait_high:
+    jnz .rf_wait_low
+.rf_wait_high:
     in al, PORT_STATUS
     test al, 0x01
-    jz .rf_bt_wait_high
+    jz .rf_wait_high
 
-    ; --- Critical HBLANK: pre-fetched burst, 1 memory read ---
-    mov al, 0x40
-    out PORT_REG_ADDR, al       ; open E0
-    mov al, ah                  ; R from AH (preserved)
-    out dx, al                  ; R → 0xDE
-    mov al, [bar_gb]            ; G|B from saved byte
-    out dx, al                  ; G|B → 0xDE
-    mov al, 0x80
-    out PORT_REG_ADDR, al       ; close
-
-    dec cx
-    cmp cx, SCREEN_HEIGHT - IMAGE_TOP
-    ja .rf_bar_top
-
-    ; ==================================================================
-    ; ZONE 2: Image (lines IMAGE_TOP to IMAGE_BOTTOM-1)
-    ; DX already 0xDE. SI already loaded.
-    ; ==================================================================
-.rf_image:
-.rf_img_wait_low:
-    in al, PORT_STATUS
-    test al, 0x01
-    jnz .rf_img_wait_low
-.rf_img_wait_high:
-    in al, PORT_STATUS
-    test al, 0x01
-    jz .rf_img_wait_high
-
-    ; FLIP FIRST
+    ; === FLIP FIRST — nanosecond-critical ===
     mov al, bl
     out PORT_COLOR, al
     xchg bl, bh
 
-    ; Write E2-E7 (12 bytes, unrolled — avoids push/pop cx overhead)
-    mov al, 0x44
-    out PORT_REG_ADDR, al       ; Open at entry 2
-
-    outsb                       ; E2 R
-    outsb                       ; E2 G|B
-    outsb                       ; E3 R
-    outsb                       ; E3 G|B
-    outsb                       ; E4 R
-    outsb                       ; E4 G|B
-    outsb                       ; E5 R
-    outsb                       ; E5 G|B
-    outsb                       ; E6 R
-    outsb                       ; E6 G|B
-    outsb                       ; E7 R
-    outsb                       ; E7 G|B
-
-    mov al, 0x80
-    out PORT_REG_ADDR, al       ; Close
-
-    add di, 2                   ; Advance DI past unused bar data
-    dec cx
-    cmp cx, SCREEN_HEIGHT - IMAGE_BOTTOM
-    ja .rf_image
-
-    ; ==================================================================
-    ; ZONE 3: Bottom raster bars (lines IMAGE_BOTTOM to 199)
-    ; ==================================================================
-.rf_bar_bot:
-    mov ah, [di]
-    mov al, [di + 1]
-    mov [bar_gb], al
-    add di, 2
-
-.rf_bb_wait_low:
-    in al, PORT_STATUS
-    test al, 0x01
-    jnz .rf_bb_wait_low
-.rf_bb_wait_high:
-    in al, PORT_STATUS
-    test al, 0x01
-    jz .rf_bb_wait_high
-
+    ; === Open at E0, stream all 16 bytes ===
     mov al, 0x40
-    out PORT_REG_ADDR, al       ; open E0
-    mov al, ah
-    out dx, al                  ; R
-    mov al, [bar_gb]
-    out dx, al                  ; G|B
-    mov al, 0x80
-    out PORT_REG_ADDR, al       ; close
+    out PORT_REG_ADDR, al       ; Open palette at entry 0
 
-    loop .rf_bar_bot
+    push cx                     ; Save scanline counter
+    mov cx, 16                  ; 16 bytes: E0(2)+E1(2)+E2-E7(12)
+    rep outsb                   ; Stream all palette data
+    pop cx                      ; Restore scanline counter
+
+    mov al, 0x80
+    out PORT_REG_ADDR, al       ; Close palette
+
+    loop .rf_scanline
 
     ; ------------------------------------------------------------------
     ; End of frame: reset entry 0 to black, restore palette 0
@@ -1832,27 +1720,16 @@ render_frame:
 ; wait_vblank — Synchronize to the start of the visible frame
 ; ============================================================================
 ;
-; Called between frames, after the between-frame work (update bar
-; positions, build scanline table) is complete.
+; Called between frames. Waits for VBLANK to end so render_frame begins
+; at exactly line 0.
 ;
-; The render loop must start at exactly line 0. This function ensures
-; that by waiting for VBLANK to end:
+;   1. Wait for VBLANK START (bit 3 = 1) — confirms we're in blanking
+;   2. Wait for VBLANK END (bit 3 = 0) — returns at first visible scanline
 ;
-;   1. Wait for VBLANK START (bit 3 = 1) — confirms we're in the
-;      blanking period, not still in the visible area
-;   2. Wait for VBLANK END (bit 3 = 0) — returns at the first
-;      visible scanline, so render_frame begins at line 0
-;
-; This ordering is critical. An earlier implementation waited for
-; VBLANK end first, then start — this caused the code to skip an
-; entire frame (200 visible lines with no palette programming),
-; resulting in 30 Hz blinking.
-;
-; PORT_STATUS (0xDA) bit 3: 1 = in vertical blanking, 0 = visible area
-;
+; PORT_STATUS (0xDA) bit 3: 1 = vertical blanking, 0 = visible area
 ; ============================================================================
 wait_vblank:
-    ; If we're already past vblank, wait for it to start first
+    ; Wait for vblank to start
 .wv_wait_start:
     in al, PORT_STATUS
     test al, 0x08
@@ -1860,7 +1737,7 @@ wait_vblank:
     jmp .wv_wait_start
 
 .wv_in_vblank:
-    ; Now wait for vblank to END (visible area about to begin)
+    ; Wait for vblank to end (visible area about to begin)
 .wv_wait_end:
     in al, PORT_STATUS
     test al, 0x08
@@ -1868,7 +1745,7 @@ wait_vblank:
     ret
 
 ; ============================================================================
-; check_keyboard - Returns AL: 0xFF=ESC, 0x20=SPACE, 0=no key
+; check_keyboard - Returns AL: 0xFF=ESC, 0x20=SPACE, 's'/'S'=sync, 0=no key
 ; ============================================================================
 check_keyboard:
     mov ah, 0x01
@@ -1881,7 +1758,11 @@ check_keyboard:
     cmp ah, 0x01                ; ESC
     je .ck_esc
     cmp al, 0x20                ; SPACE
-    je .ck_space
+    je .ck_done
+    cmp al, 's'
+    je .ck_done
+    cmp al, 'S'
+    je .ck_done
 
 .ck_no_key:
     xor al, al
@@ -1891,8 +1772,7 @@ check_keyboard:
     mov al, 0xFF
     ret
 
-.ck_space:
-    mov al, 0x20
+.ck_done:
     ret
 
 ; ============================================================================
@@ -1932,17 +1812,18 @@ set_cga_palette:
 ; DATA - Messages
 ; ============================================================================
 
-msg_info    db 'PALRAM9 - BMP Image + Animated Raster Bars', 0x0D, 0x0A
+msg_info    db 'PALRAM9B - BMP Image + Full-Screen Raster Bars', 0x0D, 0x0A
             db 0x0D, 0x0A
             db 'Displays 320x200 BMP with flip-first palette', 0x0D, 0x0A
             db '(3 colors/line) + animated raster bars on', 0x0D, 0x0A
-            db 'the background. V6355D 512-color space.', 0x0D, 0x0A
+            db 'the background. Unified E0+E2-E7 streaming.', 0x0D, 0x0A
             db 0x0D, 0x0A
-            db 'Usage: PALRAM9 filename.bmp', 0x0D, 0x0A
+            db 'Usage: PALRAM9B filename.bmp', 0x0D, 0x0A
             db '  SPACE = toggle raster bars', 0x0D, 0x0A
+            db '  S     = toggle vblank sync', 0x0D, 0x0A
             db '  ESC   = exit to DOS', 0x0D, 0x0A
             db 0x0D, 0x0A
-            db 'By RetroErik - 2026', 0x0D, 0x0A, '$'
+            db 'By Retro Erik - 2026', 0x0D, 0x0A, '$'
 
 msg_splash   db 0x1B, '[2J', 0x1B, '[H'
              db 0x0D, 0x0A
@@ -1953,25 +1834,25 @@ msg_splash   db 0x1B, '[2J', 0x1B, '[H'
              db 0x0D, 0x0A
              db 0x0D, 0x0A
              db 0x0D, 0x0A
-             db '                 '
+             db '                   '
              db 0x1B, '[1;36m'
              db 'Olivetti Prodest PC1 - BMP + Raster Bars'
              db 0x1B, '[0m', 0x0D, 0x0A
-             db '                 '
+             db '                   '
              db 0x1B, '[1;33m'
-             db 'Flip-First Image + Dancing Palette Bars'
+             db 'Unified E0+E2-E7 Full-Screen Raster Bars'
              db 0x1B, '[0m', 0x0D, 0x0A
              db 0x0D, 0x0A
-             db '                              '
+             db '                                '
              db 0x1B, '[1;35m'
-             db 'RetroErik'
+             db 'Retro Erik'
              db 0x1B, '[0m'
              db ' 2026', 0x0D, 0x0A
              db 0x0D, 0x0A
-             db '                            '
+             db '                                '
              db 0x1B, '[1;33m'
              db 'Loading Image...'
-             db 0x1B, '[0m', 0x0D, 0x0A, '$'
+             db 0x1B, '[0m', '$'
 
 msg_file_err db 'Error: Cannot open file', 0x0D, 0x0A, '$'
 msg_not_bmp  db 'Error: Not a valid BMP file', 0x0D, 0x0A, '$'
@@ -2030,7 +1911,7 @@ cyan_gradient:
 %assign i i-1
 %endrep
 
-; Sine table (256 entries, values 0-100)
+; Sine table (256 entries, values 3-97)
 sine_table:
     db 50, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 64, 65, 66, 68
     db 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84
@@ -2071,15 +1952,7 @@ bar2_y:         db 0
 bar1_sine_idx:  db BAR1_PHASE
 bar2_sine_idx:  db BAR2_PHASE
 bars_enabled:   db 1
-
-; Unused — leftover from OUTSB bar burst experiment (didn't work)
-pal_cmd:        db 0x40, 0, 0
-
-; Unused — leftover from earlier render loop variant
-saved_img_si:   dw 0
-
-; Pre-fetched G|B byte for bar zone register burst
-bar_gb:         db 0
+sync_enabled:   db 1
 
 ; BMP palette RGB888 (for distance calc)
 pal_r:          times 256 db 0
@@ -2119,12 +1992,15 @@ global_b:       db 0
 ; Raster bar per-scanline RGB pairs (200 × 2 = 400 bytes)
 scanline_colors: times SCREEN_HEIGHT * 2 db 0
 
-; Image palette stream (200 × 12 = 2400 bytes): E2-E7 per line
-palette_stream: times 2400 db 0
+; Unified palette stream (200 × 16 = 3200 bytes): E0+E1+E2-E7 per line
+palette_stream: times 3200 db 0
 
 ; File I/O buffers
 bmp_header:     times 1088 db 0
 row_buffer:     times 324 db 0
+
+; Off-screen VRAM buffer (CGA interlaced layout, 16384 bytes)
+vram_buffer:    times 16384 db 0
 
 ; ============================================================================
 ; END OF PROGRAM

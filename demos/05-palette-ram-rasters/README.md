@@ -290,6 +290,37 @@ PALRAM7 image.bmp
 PALRAM9 image.bmp
 ```
 
+### `palram9b.asm` - **NEW!** Unified E0+E2-E7 Stream (No Zone Split)
+**Purpose:** Prove that E0 raster bars and flip-first E2-E7 image display can coexist on the SAME scanlines
+- **Complexity:** Advanced (~same as palram9)
+- **Status:** ✅ **Confirmed working on real PC1 hardware (March 2026)**
+- **Features:**
+  - Eliminates palram9's 3-zone architecture entirely
+  - Every scanline writes ALL entries (E0+E1+E2-E7) in a single 0x40 write session
+  - 16-byte OUTSB stream per scanline (vs 12-byte in palram9's image zone)
+  - Raster bars can sweep across the image area — no zone restriction
+  - Same BMP loading, flip-first palette, and sine-wave bars as palram9
+- **Learning focus:** Unified palette streaming — one write session per scanline handles everything
+
+**Key Discovery (March 2026):**
+- The 3-zone split in palram9 was a **safe but unnecessary constraint**
+- A single 0x40-opened palette write session can stream E0 through E7 sequentially
+- E0 completes within HBLANK (~55 cycles of ~72-80 available) — CGA palette flip is **100% stable**
+- E1 is unused in CGA mode 4, so its spill past HBLANK is harmless
+- E2-E7 target the inactive palette set (flip-first), so visible-area spill causes no artifacts
+
+**Known Artifact:**
+- Tiny glitch on the first few pixels of raster bar scanlines — E0 write completing at the edge of the HBLANK window. This is inherent to E0 streaming and cannot be eliminated (4 OUT instructions are the minimum). Same artifact as palram9's bar zones.
+
+**Controls:**
+- `SPACE` - Toggle raster bar animation on/off
+- `ESC` - Exit to DOS
+
+**Usage:**
+```
+PALRAM9B image.bmp
+```
+
 ## Why Palette RAM Instead of PORT_COLOR?
 
 The V6355D offers two raster bar techniques:
@@ -346,6 +377,7 @@ nasm -f bin -o palram7.com palram7.asm
 nasm -f bin -o palram7b.com palram7b.asm
 nasm -f bin -o palram8.com palram8.asm
 nasm -f bin -o palram9.com palram9.asm
+nasm -f bin -o palram9b.com palram9b.asm
 ```
 
 ### Copy to floppy:
