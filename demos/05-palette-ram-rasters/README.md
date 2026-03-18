@@ -2,11 +2,11 @@
 
 Educational demonstrations of per-scanline **Palette RAM manipulation** on the Olivetti PC1 with Yamaha V6355D video controller.
 
-The plan is to test 4 method. We have tested method 1 and 2
+The plan is to test 4 methods. We have tested method 1 and 2 extensively.
   1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-port-color-rasters. Works on standard CGA.
-  2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). - Tested in 05-palette-ram-rasters. V6355D-only. **Confirmed mode-independent** (works in both 160x200x16 and CGA mode 4).
- **  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates. Works on standard CGA as a timing method.
- **  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline. Works on standard CGA.
+  2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). Tested in 05-palette-ram-rasters. V6355D-only. **Confirmed mode-independent** (works in both 160x200x16 and CGA mode 4). Includes flip-first BMP display + raster bars (palram9/9b/9c) with three write methods tested.
+  3. PIT interrupt raster (8088MPH/Area5150): timer IRQs schedule mid-scanline updates. Works on standard CGA as a timing method.
+  4. CGA palette flip (0x3D8): toggle between the two CGA palettes mid-scanline. Works on standard CGA.
 
 ## Hardware Target
 - **Machine:** Olivetti Prodest PC1
@@ -321,6 +321,48 @@ PALRAM9 image.bmp
 PALRAM9B image.bmp
 ```
 
+### `palram9c.asm` - **NEW!** Optimized Hybrid E0-E7 Stream
+**Purpose:** Best-quality unified E0+E2-E7 palette streaming with optimized write method
+- **Complexity:** Advanced (~same as palram9b)
+- **Status:** ✅ **Confirmed working on real PC1 hardware (March 2026)**
+- **Features:**
+  - Same unified stream architecture as palram9b (no zone split)
+  - **Hybrid write path:** OUTSB×4 for E0+E1 (fast first-byte), then REP OUTSB×12 for E2-E7
+  - Best balance of artifact reduction vs code size
+  - Raster bars sweep across the image area with minimal left-edge artifacts
+  - Same BMP loading, flip-first palette, and sine-wave bars as palram9b
+- **Learning focus:** Comparing different V6355D write methods and understanding HBLANK timing
+
+**Three Write Methods Tested (March 2026):**
+
+| Method | E0 Latency | Artifacts | Code Size |
+|--------|-----------|-----------|----------|
+| **16× unrolled OUT** | Fastest — immediate first byte | Best (not 100% clean) | Largest |
+| **Hybrid** (OUTSB×4 + REP OUTSB×12) | Fast — no REP startup | Best (not 100% clean) | Medium |
+| **REP OUTSB** (all 16) | Slowest — ~17 cycle REP startup | Noticeable left-side bar artifacts | Smallest |
+
+E0 first-byte latency determines artifact severity. REP's ~17-cycle startup delay pushes E0 past the safe HBLANK window on some scanlines, causing visible glitches on the left edge. The hybrid matches unrolled OUT performance at smaller code size.
+
+**Skip Optimizations Tested (all failed with blinking):**
+1. Same-parity (N vs N-2): skip both flip and write if data matches
+2. Frame-to-frame: compare with previous frame's stream for same line
+3. All-zeros detection: skip lines where all 16 stream bytes are zero
+4. Skip write only (still flip): hardware shows stale palette data
+5. Open at 0x44 to skip E0-E1: mixing 0x40/0x44 per-scanline is unreliable
+6. Split session (0x40 for E0 + close + 0x44 for E2-E7): two open/close cycles unreliable
+
+**Root cause of skip blinking:** The HSYNC polling loop expects constant time per iteration. The write path takes ~200+ cycles, the skip path takes ~20 cycles. Variable timing causes polling desynchronization — the loop catches the wrong HBLANK edge, causing accumulated drift and visible blinking.
+
+**Controls:**
+- `SPACE` - Toggle raster bar animation on/off
+- `S` - Toggle vblank sync on/off
+- `ESC` - Exit to DOS
+
+**Usage:**
+```
+PALRAM9C image.bmp
+```
+
 ## Why Palette RAM Instead of PORT_COLOR?
 
 The V6355D offers two raster bar techniques:
@@ -378,6 +420,7 @@ nasm -f bin -o palram7b.com palram7b.asm
 nasm -f bin -o palram8.com palram8.asm
 nasm -f bin -o palram9.com palram9.asm
 nasm -f bin -o palram9b.com palram9b.asm
+nasm -f bin -o palram9c.com palram9c.asm
 ```
 
 ### Copy to floppy:
@@ -411,6 +454,8 @@ A:\palram9 image.bmp
 8. **Try `palram7b.asm`** - See the same raster bars in CGA mode 4 (no BMP needed)
 9. **Try `palram8.asm`** - Confirm palette RAM gradient works in CGA mode 4
 10. **Try `palram9.asm`** - See flip-first BMP display combined with raster bar animation (3-zone split)
+11. **Try `palram9b.asm`** - See unified E0+E2-E7 streaming with REP OUTSB (no zone split)
+12. **Try `palram9c.asm`** - See optimized hybrid write method and why skip optimizations fail
 
 ## Educational Insights
 
