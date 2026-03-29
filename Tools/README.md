@@ -401,3 +401,10 @@ nasm -f bin pitclk.asm -o pitclk.com
 ## Related Documentation
 
 See the main project [README](../README.md) and [V6355D Hardware Sprite documentation](../docs/V6335D-Hardware-Sprite.md) for more details on the video chip registers and capabilities.
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

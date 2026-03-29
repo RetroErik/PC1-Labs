@@ -137,3 +137,10 @@ Original driver by Simone Riminucci (2016-2017).
 Modifications and documentation by RetroErik (2026).
 
 See [../../../LICENSE](../../../LICENSE) for details.
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

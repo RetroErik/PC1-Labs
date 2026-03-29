@@ -149,3 +149,10 @@ nasm -f bin -o cgaflip-diag4.com cgaflip-diag4.asm
 ## License
 
 See the [PC1-Labs LICENSE](../../LICENSE) file.
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

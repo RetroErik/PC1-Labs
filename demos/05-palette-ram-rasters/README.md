@@ -574,3 +574,10 @@ Retro Erik - 2026
 ---
 
 **Note:** These demos are educational tools for learning about real-time graphics programming, hardware synchronization, and creative exploitation of limited hardware constraints. The Yamaha V6355D is a fascinating video controller that enables sophisticated visual effects through clever timing!
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

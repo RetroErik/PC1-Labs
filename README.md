@@ -173,3 +173,10 @@ MIT — see [LICENSE](LICENSE).
 ## Contributing
 
 Pull requests welcome! Please follow the existing assembly style (NASM, 186 CPU target).
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

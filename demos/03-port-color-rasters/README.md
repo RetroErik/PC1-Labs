@@ -175,3 +175,9 @@ Retro Erik - 2026
 ---
 
 **Note:** These demos are educational. They demonstrate fundamental concepts in real-time graphics programming and hardware interaction on retro systems. The V6355D is a fascinating piece of hardware that enabled creative visual effects with limited resources.
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

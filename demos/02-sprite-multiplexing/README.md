@@ -158,3 +158,10 @@ Increase for faster movement, decrease for slower.
 - Collision detection between balls
 - Variable ball speeds and sizes (via shape swapping)
 - Horizontal sprite multiplexing (for side-scrollers)
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

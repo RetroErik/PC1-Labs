@@ -204,3 +204,10 @@ See the **[02-sprite-multiplexing](../02-sprite-multiplexing/)** folder for the 
 - **BBalls4**: True raster-sync multiplexing (the breakthrough!)
 - **BBalls5**: Rainbow colors + XOR/solid blend modes
 - **BBalls6**: Spinning line animation + all effects combined
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)

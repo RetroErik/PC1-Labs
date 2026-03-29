@@ -286,3 +286,10 @@ Retro Erik - 2026
 ---
 
 **Note:** These demos trace a real engineering journey — from "how do I even display a BMP?" to "can I scroll at 100× less memory bandwidth?" — complete with dead ends (demo3), fundamental hardware limitations (the gap), and creative workarounds (demo8b) leading to the final solution (demo8c). The progression mirrors how demo scene coders historically pushed hardware beyond its intended limits.
+
+---
+
+## YouTube
+
+For more retro computing content, visit my YouTube channel **Retro Hardware and Software**:
+[https://www.youtube.com/@RetroErik](https://www.youtube.com/@RetroErik)
