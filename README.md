@@ -7,6 +7,8 @@ By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube
 ![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
 ![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
 
+### ▶️ [Watch the video on YouTube](https://youtu.be/YxFZWqKxw7U)
+
 ## Overview
 
 A collection of educational assembly demos that push the Olivetti PC1 beyond its standard CGA capabilities. Topics include hardware sprite multiplexing, per-scanline palette manipulation, PIT-timed raster effects, CGA palette flipping, bitmap scrolling, Kefrens bars, and real-time 3D vector graphics — all running on the V6355D's hidden 160×200×16 graphics mode.
