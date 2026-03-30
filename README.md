@@ -55,7 +55,7 @@ BMP image loading, raster bars over images, software and hardware scrolling tech
 - `demo5a.asm` — Full-screen scrolling with sine-wave motion
 - `demo5b - linear ram.asm` — Linear RAM scrolling
 - `demo5c - fast interlaced RAM.asm` — Fast interlaced RAM scrolling
-- `demo6.asm` — Partial-screen panning
+- `demo6a.asm` / `demo6b.asm` — Partial-screen panning and smooth scanline-order variant
 - `demo7a.asm` / `demo7b.asm` — Hardware (CRTC R12/R13) and software viewport scrolling
 - `demo8a.asm` through `demo8c.asm` — Circular buffer scrolling (160 bytes/frame)
 - `demo9.asm` / `demo9b.asm` — R12/R13 effects (screen shake, wave, bounce, marquee)
@@ -76,8 +76,7 @@ Per-scanline palette RAM manipulation — changing RGB values during horizontal 
 PIT (Programmable Interval Timer) based scanline timing for smoother raster effects than HSYNC polling.
 
 - `pitclk.asm` — Clock speed measurement and discovery tool
-- `pitras1.asm` through `pitras3.asm` — PIT interrupt raster effects (working)
-- `pitras4.asm` / `pitras5.asm` — Cycle-counted experiments (8088MPH-style)
+- `pitras1a.asm` through `pitras1d.asm` — PIT interrupt raster timing experiments and stability tests
 
 Includes [PC1-CLOCK-DISCOVERY.md](demos/06-pit-raster-timing/PC1-CLOCK-DISCOVERY.md) — clock speed findings.
 
@@ -175,7 +174,7 @@ Mouse driver by Simone Riminucci, modified for hardware-free testing.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+CC BY-NC 4.0 — see [LICENSE](LICENSE).
 
 ## Contributing
 
