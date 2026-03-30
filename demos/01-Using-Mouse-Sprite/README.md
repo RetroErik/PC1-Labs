@@ -1,6 +1,11 @@
 # Bouncing Ball Demos (Using Mouse Driver)
 
-Learning-focused demos showing how to use the V6335D hardware sprite via Simone Riminucci's INT 33h mouse driver.
+Learning-focused demos showing how to use the V6355D hardware sprite via Simone Riminucci's INT 33h mouse driver.
+
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
 
 ## Files in This Folder
 
@@ -64,6 +69,30 @@ BBalls3.com
 ```
 
 Press **ESC** to exit any demo.
+
+## Screenshots
+
+*Running on real Olivetti Prodest PC1 hardware:*
+
+<p>
+<em>BBall.com — single bouncing ball via INT 33h mouse driver</em><br>
+<img src="bball.jpg" width="60%" alt="BBall - single bouncing ball">
+</p>
+
+<p>
+<em>BBalls1.com — 3 balls, frame-based multiplexing via mouse driver</em><br>
+<img src="bballs1.jpg" width="60%" alt="BBalls1 - 3 balls multiplexing">
+</p>
+
+<p>
+<em>BBalls2.com — 3 balls, direct V6355D hardware access</em><br>
+<img src="bballs2.jpg" width="60%" alt="BBalls2 - direct hardware access">
+</p>
+
+<p>
+<em>BBalls3.com — vsync-synchronized, one ball per frame cycling</em><br>
+<img src="bballs3.jpg" width="60%" alt="BBalls3 - vsync synchronized">
+</p>
 
 ## How It Works
 

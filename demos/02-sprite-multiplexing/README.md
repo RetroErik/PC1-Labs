@@ -2,6 +2,11 @@
 
 True raster-synchronized sprite multiplexing demos showing how to display multiple sprites from a single hardware sprite by chasing the CRT beam.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 ## Files in This Folder
 
 | Version | File | Features | Balls |
@@ -29,6 +34,23 @@ Advanced version with frame-based sprite shape animation:
 - Random rainbow colors on every bounce
 - Top ball XOR transparent, bottom ball solid
 - Sprite shape updates mid-frame along with color changes
+
+## Screenshots
+
+<p>
+<em>BBalls4 — raster-synchronized sprite multiplexing, 2 balls from 1 sprite</em><br>
+<img src="bballs4.png" width="60%" alt="BBalls4 - raster-sync multiplexing">
+</p>
+
+<p>
+<em>BBalls5 — rainbow colors + XOR/solid blend modes</em><br>
+<img src="bballs5.png" width="60%" alt="BBalls5 - rainbow colors">
+</p>
+
+<p>
+<em>BBalls6 — spinning line animation + rainbow colors</em><br>
+<img src="bballs6.png" width="60%" alt="BBalls6 - spinning animation">
+</p>
 
 ## How Raster-Sync Multiplexing Works
 

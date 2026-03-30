@@ -2,6 +2,11 @@
 
 Educational demonstrations of raster bar techniques on the Olivetti PC1 with Yamaha V6355D video controller.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 ## Hardware Target
 - **Machine:** Olivetti PC1
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
@@ -64,6 +69,43 @@ Different variations and optimizations of PORT_COLOR approach.
 - **Key Finding:** Proves PORT_COLOR per-scanline changes work in standard CGA modes
 - **Portability:** This technique is universal to all CGA-compatible hardware
 - **Learning point:** Raster bars are not PC1-specific — they work on standard CGA
+
+## Screenshots
+
+<p>
+<em>rbars1 — Fast gradient with PORT_COLOR (visible tearing)</em><br>
+<img src="rbars1.jpg" width="60%" alt="rbars1 - Fast gradient with tearing">
+</p>
+
+<p>
+<em>rbars2 — Pre-computed pattern, no tearing</em><br>
+<img src="rbars2.jpg" width="60%" alt="rbars2 - Pre-computed pattern">
+</p>
+
+<p>
+<em>rbars3 — Wide color bars, full 16-color range</em><br>
+<img src="rbars3.jpg" width="60%" alt="rbars3 - Wide color bars">
+</p>
+
+<p>
+<em>rbars4 — PORT_COLOR in PC1 hidden mode (160×200×16)</em><br>
+<img src="rbars4.jpg" width="60%" alt="rbars4 - Hidden mode raster bars">
+</p>
+
+<p>
+<em>rbars5 — Smooth warm-color gradient raster bars</em><br>
+<img src="rbars5.jpg" width="60%" alt="rbars5 - Smooth gradient raster bars">
+</p>
+
+<p>
+<em>rbars6 — Clean warm-toned raster bars on black</em><br>
+<img src="rbars6.jpg" width="60%" alt="rbars6 - Clean raster bars">
+</p>
+
+<p>
+<em>rbars7 — Dual red/green color raster bars</em><br>
+<img src="rbars7.jpg" width="60%" alt="rbars7 - Dual color raster bars">
+</p>
 
 ### Palette RAM Demos - MOVED
 **Palette RAM demonstrations have been moved to `05-palette-ram-rasters/` folder**
@@ -169,12 +211,12 @@ At 8 MHz (NEC V40), per scanline:
 - Demo scene raster bar techniques
 - Amiga graphics programming concepts
 
-## Author
-Retro Erik - 2026
+## License
 
----
+This project is licensed under **CC BY-NC 4.0**.
 
-**Note:** These demos are educational. They demonstrate fundamental concepts in real-time graphics programming and hardware interaction on retro systems. The V6355D is a fascinating piece of hardware that enabled creative visual effects with limited resources.
+Copyright (C) 2026 Retro Erik
+
 ---
 
 ## YouTube

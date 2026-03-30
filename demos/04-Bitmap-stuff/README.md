@@ -2,6 +2,11 @@
 
 Educational demonstrations exploring BMP image loading, raster bars over images, scrolling, and hardware register tricks on the Olivetti PC1 with Yamaha V6355D video controller.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 ## Hardware Target
 - **Machine:** Olivetti PC1
 - **CPU:** NEC V40 (80186 compatible) @ 8 MHz
@@ -208,6 +213,78 @@ This folder traces the evolution from "display a BMP with raster bars" all the w
 - Uses `[CPU 186]` for `pusha`/`popa` and immediate-count shifts (NEC V40 is 80186-compatible)
 - **Hardware confirmed: all effects clean on real PC1, no seam, no gap artifacts**
 - **~1380 lines** | S/H/T/B/M = effects, 1–6 = shake intensity, UP/DOWN/PgUp/PgDn/Home/End = navigate, V = VSync, R = reset, ESC = exit
+
+## Screenshots
+
+<p>
+<em>demo1 — PORT_COLOR raster bars over BMP (flickery)</em><br>
+<img src="demo1.png" width="60%" alt="demo1 - PORT_COLOR raster bars">
+</p>
+
+<p>
+<em>demo1b — PALRAM raster bars on black pixels</em><br>
+<img src="demo1b.png" width="60%" alt="demo1b - PALRAM raster bars">
+</p>
+
+<p>
+<em>demo2 — VRAM strip bars with palette cycling</em><br>
+<img src="demo2.png" width="60%" alt="demo2 - VRAM strip bars">
+</p>
+
+<p>
+<em>demo3 — VRAM strip bars with RAM buffer (broken palette cycling)</em><br>
+<img src="demo3.png" width="60%" alt="demo3 - RAM buffer strip bars">
+</p>
+
+<p>
+<em>demo4 — Complete working VRAM strip bars version</em><br>
+<img src="demo4.png" width="60%" alt="demo4 - complete strip bars">
+</p>
+
+<p>
+<em>demo5a — Lissajous full-screen scroller</em><br>
+<img src="demo5a.png" width="60%" alt="demo5a - lissajous scroller">
+</p>
+
+<p>
+<em>demo6a — Partial-screen panning with FPS counter</em><br>
+<img src="demo6a.png" width="60%" alt="demo6a - partial panning">
+</p>
+
+<p>
+<em>demo7a — Hardware R12/R13 scrolling experiment</em><br>
+<img src="demo7a.png" width="60%" alt="demo7a - hardware scrolling">
+</p>
+
+<p>
+<em>demo7b — Software viewport scrolling for tall images</em><br>
+<img src="demo7b.png" width="60%" alt="demo7b - software viewport scrolling">
+</p>
+
+<p>
+<em>demo8a — Circular buffer concept demo</em><br>
+<img src="demo8a.png" width="60%" alt="demo8a - circular buffer concept">
+</p>
+
+<p>
+<em>demo8b — Circular buffer with reduced display workaround</em><br>
+<img src="demo8B.png" width="60%" alt="demo8b - reduced display workaround">
+</p>
+
+<p>
+<em>demo8c — True circular buffer in 192-line mode</em><br>
+<img src="demo8C.png" width="60%" alt="demo8c - true circular buffer">
+</p>
+
+<p>
+<em>demo9 — R12/R13 visual effects demo</em><br>
+<img src="demo9.jpg" width="60%" alt="demo9 - R12/R13 effects">
+</p>
+
+<p>
+<em>demo9b — Final vertical effects with tall image support</em><br>
+<img src="demo9b.png" width="60%" alt="demo9b - final vertical effects">
+</p>
 
 ## BMP Files
 
