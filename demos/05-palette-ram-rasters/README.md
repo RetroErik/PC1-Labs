@@ -2,6 +2,11 @@
 
 Educational demonstrations of per-scanline **Palette RAM manipulation** on the Olivetti PC1 with Yamaha V6355D video controller.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 The plan is to test 4 methods. We have tested method 1 and 2 extensively.
   1. PORT_COLOR (0x3D9): 1 OUT per scanline, 16 palette indices (fast, limited). Tested in 03-port-color-rasters. Works on standard CGA.
   2. Palette RAM (0x3DD/0x3DE): 3 OUTs per scanline, RGB333 (512 colors). Tested in 05-palette-ram-rasters. V6355D-only. **Confirmed mode-independent** (works in both 160x200x16 and CGA mode 4). Includes flip-first BMP display + raster bars (palram9/9b/9c) with three write methods tested.
@@ -362,6 +367,73 @@ E0 first-byte latency determines artifact severity. REP's ~17-cycle startup dela
 ```
 PALRAM9C image.bmp
 ```
+
+## Screenshots
+
+<p>
+<em>palram1 - Basic per-scanline Palette RAM gradient</em><br>
+<img src="palram1.jpg" width="60%" alt="palram1 basic gradient">
+</p>
+
+<p>
+<em>palram2 - Multiple palette mode gradients</em><br>
+<img src="palram2.jpg" width="60%" alt="palram2 multiple modes">
+</p>
+
+<p>
+<em>palram3 - Advanced reference implementation</em><br>
+<img src="PALRAM3a.jpg" width="60%" alt="palram3 advanced reference A">
+</p>
+
+<p>
+<em>palram3 - Additional mode capture</em><br>
+<img src="PALRAM3b.jpg" width="60%" alt="palram3 advanced reference B">
+</p>
+
+<p>
+<em>palram3 - Additional mode capture</em><br>
+<img src="PALRAM3c.jpg" width="60%" alt="palram3 advanced reference C">
+</p>
+
+<p>
+<em>palram4 - Optimized single-palette rainbow</em><br>
+<img src="PALRAM4.jpg" width="60%" alt="palram4 optimized rainbow">
+</p>
+
+<p>
+<em>palram5 - Multiple writes per scanline experiment</em><br>
+<img src="palram5.jpg" width="60%" alt="palram5 timing experiment">
+</p>
+
+<p>
+<em>palram6 - Multi-color raster bar pipeline experiment</em><br>
+<img src="palram6.jpg" width="60%" alt="palram6 multi-color experiment">
+</p>
+
+<p>
+<em>palram7 - BMP image with Palette RAM raster bars</em><br>
+<img src="palram7.png" width="60%" alt="palram7 bmp with raster bars">
+</p>
+
+<p>
+<em>palram7b - Dancing raster bars in CGA mode 4</em><br>
+<img src="palram7b.png" width="60%" alt="palram7b cga mode raster bars">
+</p>
+
+<p>
+<em>palram8 - Palette RAM gradient in CGA mode 4</em><br>
+<img src="palram8.png" width="60%" alt="palram8 cga mode gradient">
+</p>
+
+<p>
+<em>palram9 - BMP plus animated raster bars (3-zone split)</em><br>
+<img src="palram9.png" width="60%" alt="palram9 three zone split">
+</p>
+
+<p>
+<em>palram9b - Unified E0 plus E2-E7 stream (no zone split)</em><br>
+<img src="palram9b.png" width="60%" alt="palram9b unified stream">
+</p>
 
 ## Why Palette RAM Instead of PORT_COLOR?
 
