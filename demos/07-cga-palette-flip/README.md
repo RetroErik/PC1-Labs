@@ -2,6 +2,11 @@
 
 Per-scanline CGA palette switching experiments on the **Olivetti Prodest PC1** (Yamaha V6355D, NEC V40 @ 8 MHz) in 320×200×4 CGA mode.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 Inspired by **Simone's** technique used in Monkey Island on the PC1 — alternate between the two CGA palettes every scanline and reprogram the V6355D palette RAM on the fly, producing far more than 4 colors per frame.
 
 ## The Technique
@@ -97,6 +102,103 @@ cgaflip2 → cgaflip3 → cgaflip4 (fail) → cgaflip5 (proof) → cgaflip6 → 
 |------|-------------|
 | `*.com` | Assembled COM executables for each demo. |
 | `*.png` | Photos/screenshots from real PC1 hardware showing the output of each demo. |
+
+## Screenshots
+
+<p>
+<em>cgaflip2 - Part 1/8, palette flip plus entry 0 gradient</em><br>
+<img src="CGAFLIP2.png" width="60%" alt="cgaflip2 output">
+</p>
+
+<p>
+<em>cgaflip3 - Part 2/8, entry 2 gradient with black border</em><br>
+<img src="CGAFLIP3.png" width="60%" alt="cgaflip3 output">
+</p>
+
+<p>
+<em>cgaflip4 - Part 3/8, visible-area streaming failure case</em><br>
+<img src="CGAFLIP4.png" width="60%" alt="cgaflip4 output">
+</p>
+
+<p>
+<em>cgaflip5 - Part 4/8, flip-only stability proof</em><br>
+<img src="CGAFLIP5.png" width="60%" alt="cgaflip5 output">
+</p>
+
+<p>
+<em>cgaflip6 - Part 5/8, sunset gradient showcase</em><br>
+<img src="CGAFLIP6.png" width="60%" alt="cgaflip6 output">
+</p>
+
+<p>
+<em>cgaflip7 - Part 6/8, three-column gradients</em><br>
+<img src="CGAFLIP7.png" width="60%" alt="cgaflip7 output">
+</p>
+
+<p>
+<em>cgaflip7 - alternate capture</em><br>
+<img src="CGAFLIP7B.png" width="60%" alt="cgaflip7 alternate output B">
+</p>
+
+<p>
+<em>cgaflip7 - alternate capture</em><br>
+<img src="CGAFLIP7C.png" width="60%" alt="cgaflip7 alternate output C">
+</p>
+
+<p>
+<em>cgaflip8 - Part 7/8, E2 plus E3 dual gradient</em><br>
+<img src="CGAFLIP8.png" width="60%" alt="cgaflip8 output">
+</p>
+
+<p>
+<em>cgaflip8 - alternate capture</em><br>
+<img src="CGAFLIP8B.png" width="60%" alt="cgaflip8 alternate output">
+</p>
+
+<p>
+<em>cgaflip9 - Part 8/8, full E2-E7 streaming</em><br>
+<img src="CGAFLIP9.png" width="60%" alt="cgaflip9 output">
+</p>
+
+<p>
+<em>cgaflip9b - unified stream variant</em><br>
+<img src="CGAFLIP9B.png" width="60%" alt="cgaflip9b output">
+</p>
+
+<p>
+<em>cgaflip9c - unified stream variant</em><br>
+<img src="CGAFLIP9c.png" width="60%" alt="cgaflip9c output">
+</p>
+
+<p>
+<em>cgaflip9d - unified stream variant</em><br>
+<img src="CGAFLIP9d.png" width="60%" alt="cgaflip9d output">
+</p>
+
+<p>
+<em>cgaflip-diag2 - active-entry write diagnostic</em><br>
+<img src="CGAFLIP-DIAG2.png" width="60%" alt="cgaflip diag2 output">
+</p>
+
+<p>
+<em>cgaflip-diag2 - alternate capture</em><br>
+<img src="CGAFLIP-DIAG2B.png" width="60%" alt="cgaflip diag2 output B">
+</p>
+
+<p>
+<em>cgaflip-diag2 - alternate capture</em><br>
+<img src="CGAFLIP-DIAG2C.png" width="60%" alt="cgaflip diag2 output C">
+</p>
+
+<p>
+<em>cgaflip-diag3 - column-order constraint test</em><br>
+<img src="CGAFLIP-DIAG3.png" width="60%" alt="cgaflip diag3 output">
+</p>
+
+<p>
+<em>cgaflip-diag4 - static E6 plus dynamic E7 test</em><br>
+<img src="CGAFLIP-DIAG4.png" width="60%" alt="cgaflip diag4 output">
+</p>
 
 ## Key Hardware Findings
 
