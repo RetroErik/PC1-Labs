@@ -2,6 +2,11 @@
 
 Utility programs for testing, measuring, and debugging V6355D video chip behavior on the Olivetti PC1.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 ## Tools
 
 ### hpos.asm — Horizontal Position Tester
@@ -375,6 +380,60 @@ Runs 5 automated timing tests using PIT channel 0, displays ANSI-colored results
 - Phase-lock confirmed by pitras1b: PIT free-runs with zero drift forever
 
 See [PC1-CLOCK-DISCOVERY.md](../demos/06-pit-raster-timing/PC1-CLOCK-DISCOVERY.md) for full clock tree analysis.
+
+---
+
+## Screenshots
+
+<p>
+<em>checkit - hardware verification utility reference capture</em><br>
+<img src="checkit.png" width="60%" alt="checkit utility capture">
+</p>
+
+<p>
+<em>crtc_restarts_test - baseline test screen</em><br>
+<img src="crtc_restarts_test.png" width="60%" alt="crtc restarts test baseline">
+</p>
+
+<p>
+<em>crtc_restarts_test - key 1 mode</em><br>
+<img src="crtc_restarts_test_pressed_1.png" width="60%" alt="crtc restarts key 1">
+</p>
+
+<p>
+<em>crtc_restarts_test - key 2 mode</em><br>
+<img src="crtc_restarts_test_pressed_2.png" width="60%" alt="crtc restarts key 2">
+</p>
+
+<p>
+<em>crtc_restarts_test - key 3 mode</em><br>
+<img src="crtc_restarts_test_pressed_3.png" width="60%" alt="crtc restarts key 3">
+</p>
+
+<p>
+<em>pitclk - CPU/PIT clock measurement screen</em><br>
+<img src="pitclk.png" width="60%" alt="pitclk measurement screen">
+</p>
+
+<p>
+<em>pitclk v2 measurement capture</em><br>
+<img src="pitclk2.png" width="60%" alt="pitclk v2 capture">
+</p>
+
+<p>
+<em>pitclk v3 measurement capture</em><br>
+<img src="pitclk3.png" width="60%" alt="pitclk v3 capture">
+</p>
+
+<p>
+<em>pitclk v4 final reference capture</em><br>
+<img src="pitclk-v4.png" width="60%" alt="pitclk v4 capture">
+</p>
+
+<p>
+<em>reg65_test - monitor control line-count test pattern</em><br>
+<img src="reg65_test_a1.png" width="60%" alt="reg65 test pattern">
+</p>
 
 ---
 
