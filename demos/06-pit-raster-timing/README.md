@@ -2,6 +2,11 @@
 
 Demonstrations of **PIT (Programmable Interval Timer) based scanline timing** on the Olivetti PC1 with Yamaha V6355D video controller.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 ## What This Folder Provides
 
 This folder tests using **PIT interrupts** instead of **HSYNC polling** for per-scanline palette updates. The PIT method provides smoother, more consistent timing.
@@ -291,6 +296,15 @@ All future work builds on **pitras1b** — the proven one-change-per-scanline ap
 | 4 | Copper bars | Bouncing color bands | pitras3 + multi-bar |
 
 Each demo builds incrementally on the previous. pitras2 is essentially pitras1b with one extra instruction.
+
+---
+
+## Screenshots
+
+<p>
+<em>pitras1a - PIT-timed per-scanline palette raster (naive version)</em><br>
+<img src="pitras1a.jpg" width="60%" alt="pitras1a PIT raster timing demo">
+</p>
 
 ---
 
