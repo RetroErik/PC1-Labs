@@ -2,11 +2,21 @@
 
 Real-time 3D flat-shaded rotating pyramid running on the Olivetti Prodest PC1's hidden 160x200x16 graphics mode.
 
+By **Retro Erik** — [YouTube: Retro Hardware and Software](https://www.youtube.com/@RetroErik)
+
+![Olivetti Prodest PC1](https://img.shields.io/badge/Platform-Olivetti%20Prodest%20PC1-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green)
+
 **Status: Working on real hardware.** Smooth rotation, zero flicker, clean exit to DOS.
 
 ## Screenshot
 
 A 4-sided pyramid rotates continuously around the Y axis with a fixed 31-degree X tilt, showing red, green, blue, and cyan faces with correct backface culling and painter's algorithm depth sorting.
+
+<p>
+<em>Pyramid demo on real Olivetti Prodest PC1 hardware</em><br>
+<img src="Pyramid1.png" width="60%" alt="Flat-shaded rotating pyramid on PC1">
+</p>
 
 ## Hardware
 
