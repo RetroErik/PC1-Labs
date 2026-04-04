@@ -29,13 +29,16 @@ hpos.com
 - Values below 24 shift the screen left off-screen
 
 **Important Discovery:**
-When initializing graphics mode, avoid using BIOS INT 10h as it resets V6355D registers and overwrites PERITEL's horizontal position setting. Instead, write directly to the CGA mode register at port `0x3D8`:
+BIOS INT 10h resets V6355D registers — including register 0x67 (horizontal position) and palette RAM — back to defaults. If PERITEL.COM has been loaded, INT 10h will overwrite its optimal horizontal position setting (`0x18`).
 
-```asm
-mov al, 0x4A      ; Bit 6=1 (160x200 mode), Bit 3=1 (enable), Bit 1=1 (graphics)
-mov dx, 0x3D8
-out dx, al
-```
+**Two valid approaches exist in this project:**
+- **Skip INT 10h** — write directly to port `0x3D8` to preserve PERITEL and palette settings (used by PC1-BMP v1.1+, PC1PAL):
+  ```asm
+  mov al, 0x4A      ; Bit 6=1 (160x200 mode), Bit 3=1 (enable), Bit 1=1 (graphics)
+  mov dx, 0x3D8
+  out dx, al
+  ```
+- **Use INT 10h first, then override** — lets BIOS initialize CRTC timing, then switch to hidden mode afterward (used by PC1-Boing, Kefrens). Palette and register 0x67 must be set up again after the INT 10h call.
 
 ---
 
@@ -133,7 +136,7 @@ crtctest.com
 - **CRTC Restarts are impossible** on the V6355D. This technique requires a real MC6845 where R4 controls frame height.
 - R4/R6 join R8 (Interlace Mode), R16 (Interlace Offset), and Skew registers in the confirmed dummy register list.
 
-**Implication:** The 384-byte gap problem for circular buffer scrolling **cannot be solved** via CRTC Restarts. Software viewport copying (demo7b approach) remains the only reliable method for scrolling tall images.
+**Implication:** The 384-byte gap problem (192 bytes per bank, 384 total) for circular buffer scrolling **cannot be solved** via CRTC Restarts. However, demo8c later solved the gap problem by switching to 192-line mode (register 0x65), which increases the per-bank gap to 512 bytes — enough for a write-ahead circular buffer that never reads garbage. See the reg65_test and demo8c sections for details.
 
 ---
 
@@ -233,7 +236,7 @@ Writing register index 0x65 to port 0x3DD corrupts the palette because bit 6 of 
 
 Proven working code (colorbar.asm, PC1-BMP.asm) avoids this by writing register 0x65 *before* palette setup.
 
-**Conclusion:** Register 0x65 responds to both static and mid-frame changes, but controls only vertical line count — it does **not** affect CRTC addressing. It cannot solve the 384-byte gap problem for hardware scrolling. In 192-line mode, the gap increases from 192 to 512 bytes, giving 6 smooth scroll steps vs 2, but the fundamental wrap issue remains.
+**Conclusion:** Register 0x65 responds to both static and mid-frame changes, but controls only vertical line count — it does **not** affect CRTC addressing directly. In 192-line mode, the per-bank gap increases from 192 to 512 bytes (1,024 total), giving 6 smooth scroll steps vs 2. This increased headroom is exactly what demo8c exploits — a write-ahead circular buffer that copies only 160 bytes/scroll (vs 16 KB/frame for demo7b's full viewport copy), with zero garbage pixels. The CRTC MA counter wrapping at 8K boundaries turns out to be a feature, not a bug.
 
 ---
 

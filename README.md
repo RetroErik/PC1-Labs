@@ -23,7 +23,7 @@ A collection of educational assembly demos that push the Olivetti PC1 beyond its
 
 ## Demos
 
-### 01-Using-Mouse-Sprite
+### [01-Using-Mouse-Sprite](demos/01-Using-Mouse-Sprite/README.md)
 Bouncing ball demos using the V6355D hardware sprite via Simone Riminucci's INT 33h mouse driver. Progresses from a single ball to frame-based multiplexing and direct hardware access.
 
 - `BBall.asm` — Single bouncing ball (mouse driver)
@@ -33,14 +33,14 @@ Bouncing ball demos using the V6355D hardware sprite via Simone Riminucci's INT 
 
 Also includes [V6335D-Hardware-Sprite.md](demos/01-Using-Mouse-Sprite/V6335D-Hardware-Sprite.md) — hardware sprite documentation.
 
-### 02-sprite-multiplexing
+### [02-sprite-multiplexing](demos/02-sprite-multiplexing/README.md)
 True raster-synchronized sprite multiplexing — 2 balls displayed simultaneously in one frame by chasing the CRT beam. No flicker.
 
 - `BBalls4.asm` — Raster-sync multiplexing (2 balls, one frame)
 - `BBalls5.asm` — Rainbow colors + XOR/solid blend modes
 - `BBalls6.asm` — Spinning line animation (8 frames) + rainbow colors
 
-### 03-port-color-rasters
+### [03-port-color-rasters](demos/03-port-color-rasters/README.md)
 Raster bar effects using PORT_COLOR (0x3D9) and palette RAM per-scanline color changes.
 
 - `rbars1.asm` — Fast gradient via PORT_COLOR (with tearing)
@@ -48,7 +48,7 @@ Raster bar effects using PORT_COLOR (0x3D9) and palette RAM per-scanline color c
 - `rbars3.asm` through `rbars7.asm` — Progressive techniques including CGA-compatible variants
 - `rbars4_CGA.asm` — CGA-compatible version (runs on any IBM PC with CGA)
 
-### 04-Bitmap-stuff
+### [04-Bitmap-stuff](demos/04-Bitmap-stuff/README.md)
 BMP image loading, raster bars over images, software and hardware scrolling techniques.
 
 - `demo1.asm` through `demo4.asm` — Raster bars over BMP images
@@ -60,7 +60,7 @@ BMP image loading, raster bars over images, software and hardware scrolling tech
 - `demo8a.asm` through `demo8c.asm` — Circular buffer scrolling (160 bytes/frame)
 - `demo9.asm` / `demo9b.asm` — R12/R13 effects (screen shake, wave, bounce, marquee)
 
-### 05-palette-ram-rasters
+### [05-palette-ram-rasters](demos/05-palette-ram-rasters/README.md)
 Per-scanline palette RAM manipulation — changing RGB values during horizontal blanking to display up to 512 colors on screen simultaneously.
 
 - `palram1.asm` — Basic static rainbow gradient
@@ -72,7 +72,7 @@ Per-scanline palette RAM manipulation — changing RGB values during horizontal 
 - `palram9b.asm` — Unified E0+E2-E7 streaming — eliminates zones, bars and CGA palette flipping coexist on every scanline via REP OUTSB
 - `colorbars.asm` — Color bar test pattern
 
-### 06-pit-raster-timing
+### [06-pit-raster-timing](demos/06-pit-raster-timing/README.md)
 PIT (Programmable Interval Timer) based scanline timing for smoother raster effects than HSYNC polling.
 
 - `pitclk.asm` — Clock speed measurement and discovery tool
@@ -80,18 +80,18 @@ PIT (Programmable Interval Timer) based scanline timing for smoother raster effe
 
 Includes [PC1-CLOCK-DISCOVERY.md](demos/06-pit-raster-timing/PC1-CLOCK-DISCOVERY.md) — clock speed findings.
 
-### 07-cga-palette-flip
+### [07-cga-palette-flip](demos/07-cga-palette-flip/README.md)
 Per-scanline CGA palette switching — toggling between two CGA palettes every scanline to produce up to 512 colors per frame. Inspired by Simone's Monkey Island technique on the PC1.
 
 - `cgaflip2.asm` through `cgaflip9.asm` — Progressive development from 8 colors to full 512-color streaming
 - `cgaflip-diag.asm` through `cgaflip-diag4.asm` — Diagnostic/timing analysis tools
 
-### 08-kefrens-bars
+### [08-kefrens-bars](demos/08-kefrens-bars/README.md)
 Kefrens bars effect — a classic demo scene technique.
 
 - `KEFRENS.asm` through `KEFRENS4.asm` — Progressive Kefrens bar implementations
 
-### 09-vector-gfx
+### [09-vector-gfx](demos/09-vector-gfx/README.md)
 Real-time 3D flat-shaded rotating pyramid with backface culling, painter's algorithm depth sorting, and zero-flicker scanline compositing.
 
 - `PYRAMID.asm` — Flat-shaded rotating pyramid (~3.3 KB .COM file)
