@@ -70,4 +70,4 @@ Only joystick Up and Down are wired to the V6355D switch pins (readable on port 
 |------|-------------|
 | `JoyMouse.asm` | Driver source code |
 | `joymouse.com` | Compiled driver |
-| `JOY.EXE` | Official Olivetti joystick remapping utility |
+| `JOY.EXE` | Official Olivetti joystick remapping utility - translated to english |
