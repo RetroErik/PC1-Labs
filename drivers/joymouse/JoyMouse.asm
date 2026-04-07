@@ -4,23 +4,18 @@
 ;* Based on MOUSE-PC1 driver by Simone Riminucci (C) 2016                   *
 ;* Joystick adaptation by Retro Erik - 2026                                 *
 ;*                                                                          *
-;* Connects an Atari-style digital joystick to the PC1 DE-9 mouse port      *
-;* (with ENA pin 9 floating = joystick mode) and emulates INT 33h mouse     *
-;* movements. Joystick directions move the cursor, fire = left button.      *
+;* The PC1 joystick generates keyboard scan codes (arrow keys + Space)      *
+;* via the keyboard controller. This driver intercepts those scan codes     *
+;* in INT 09h and converts them into INT 33h mouse movements and clicks.    *
 ;*                                                                          *
-;* Port 0x201 button bits (directly readable, active LOW):                  *
-;*   Bit 4 = Button 1 (Fire / Left mouse button)                           *
-;*   Bit 5 = Button 2 (2nd button / Right mouse button)                    *
+;* Joystick scan code mapping (PC1 default):                                *
+;*   Up    = 48h (Up arrow)      Down  = 50h (Down arrow)                   *
+;*   Left  = 4Bh (Left arrow)    Right = 4Dh (Right arrow)                  *
+;*   Fire  = 39h (Space)         = Left mouse button                        *
 ;*                                                                          *
-;* Joystick axes: After OUT to 0x201, digital switches discharge the RC     *
-;* circuit near-instantly. We trigger, do a short delay, then read:         *
-;*   Bit 0 = Axis 1 (Right: 0=pressed)                                     *
-;*   Bit 1 = Axis 2 (Left:  0=pressed) -- actual mapping may vary          *
-;*   Bit 2 = Axis 3 (Down:  0=pressed)                                     *
-;*   Bit 3 = Axis 4 (Up:    0=pressed)                                     *
-;*                                                                          *
-;* NOTE: Axis-to-direction mapping may need adjustment on real hardware.    *
-;*       Use /S parameter to swap X/Y axes if needed.                       *
+;* SCROLL LOCK toggles joystick mode on/off:                                *
+;*   ON  = Arrow keys and Space are captured for mouse control              *
+;*   OFF = All keys pass through normally to DOS                            *
 ;*                                                                          *
 ;* Compile with NASM: nasm -f bin -o joymouse.com JoyMouse.asm              *
 ;* Hardware cursor using YAMAHA V6355D sprite registers!                    *
@@ -136,7 +131,10 @@ joy_speed       dw 3            ; pixels per tick (adjustable with /1 /2 /3)
 joy_accel_count db 0            ; ticks joystick held in same direction
 joy_accel_thresh db 8           ; ticks before acceleration kicks in
 joy_last_dir    db 0            ; last direction bits for acceleration
-joy_swapxy      db 0            ; nonzero = swap X/Y axes
+joy_dir_state   db 0            ; current direction bits from INT 09h
+                                ; bit0=Right, bit1=Down, bit2=Left, bit3=Up
+joy_active      db 0            ; 1 = joystick mode on (Scroll Lock toggle)
+joy_btn_dirty   db 0            ; 0=none, 2=press event, 4=release event
 
 ;--- Cursor shape (arrow pointer) ---
 screenmask      dw 0011111111111111b
@@ -198,7 +196,9 @@ Int33_sub_index dw Fun_00       ; 00 - Reset/Query
 
 ;============================================================================
 ; INT 08h handler - Timer tick (~18.2 Hz)
-; Instead of reading V6355D CRTC mouse counters, we poll the joystick
+; Polls joy_dir_state (set by INT 09h) and moves cursor accordingly.
+; Also processes deferred button events (press/release counters, Call_User)
+; which cannot safely run from INT 09h context.
 ;============================================================================
 INT_08:
         pusha
@@ -207,7 +207,7 @@ INT_08:
         push    cs
         pop     ds
         mov     byte [Last_mask], 0
-        call    read_joystick           ; <-- replaces read_M_delta_coord
+        call    read_joystick
         cmp     bl, 00h
         jz      .go3
         cmp     byte [Cursor_Flag], 0
@@ -245,81 +245,27 @@ INT_08:
         jmp     far [cs:Old_INT08]
 
 .return_to_fun04:
-        pop     ds
-        popa
-        jmp     far [cs:Old_INT08]
+        ret
 
 ;============================================================================
-; read_joystick - Read Atari joystick from port 0x201
+; read_joystick - Read joystick state and process button events
 ;
-; Digital joystick: switches short RC to ground immediately.
-; After triggering (OUT 0x201), we do a tiny delay, then IN.
-; Pressed directions will have bits 0-3 = 0 (discharged instantly).
-; Centered/released directions stay 1 (capacitor still charging).
+; Direction state is read from joy_dir_state (updated by INT 09h).
+; Button events are read from joy_btn_dirty (set by INT 09h, processed
+; here in INT 08h context where it is safe to call application handlers).
 ;
-; Bit 0 = Axis 1 channel (typically joystick X+, i.e. Right)
-; Bit 1 = Axis 2 channel (typically joystick Y+, i.e. Down)
-; Bit 2 = Axis 3 channel (typically joystick X-, i.e. Left) -- if 4-axis
-; Bit 3 = Axis 4 channel (typically joystick Y-, i.e. Up)   -- if 4-axis
+; joy_dir_state bit layout:
+;   bit 0 = Right, bit 1 = Down, bit 2 = Left, bit 3 = Up
 ;
-; For a 2-axis Atari stick on the standard PC game port:
-;   Bit 0 = X axis (0 if pushed right, stays 1 briefly then 0 if centered,
-;           but for digital: 0 = active switch, timing is near-instant)
-;   Bit 1 = Y axis
-;
-; However on the PC1 with the DE-9 port in joystick mode, directions are 
-; directly read as switch states. We read buttons (bits 4-5) directly.
-;
-; Output: BL = 0 if no movement, FFh if something changed
+; Output: BL = 0 if no change, FFh if movement or button event occurred
 ;============================================================================
 read_joystick:
         mov     bl, 0                   ; BL = "was moved?" flag
-
-        ;--- Read buttons first (active LOW, directly readable) ---
-        mov     dx, 201h
-        in      al, dx                  ; read port 201h
-        mov     ah, al                  ; save full state in AH
-
-        ;--- Extract button state: bit4=btn1(left), bit5=btn2(right) ---
-        ;--- Convert to our format: bit0=left, bit1=right ---
-        mov     cl, al
-        not     cl                      ; invert: now 1=pressed
-        shr     cl, 4                   ; shift bits 4,5 -> bits 0,1
-        and     cl, 3                   ; mask to 2 buttons
-        xor     ch, ch
-        mov     [Button_Status], cx
-
-        ;--- Trigger RC timing for axes ---
-        out     dx, al                  ; any write triggers capacitor charge
-
-        ;--- Short delay: digital switches discharge almost instantly ---
-        ;--- but we need a few cycles for the port to settle ---
-        in      al, dx                  ; waste a few cycles
-        in      al, dx
-        in      al, dx
-        in      al, dx
-
-        ;--- Now read axis state ---
-        in      al, dx                  ; bits 0-3: 0 = switch closed (direction pressed)
-
-        ;--- Check if we need to swap X/Y ---
-        cmp     byte [joy_swapxy], 0
-        jz      .no_swap
-        ; Swap bits 0,1 with bits 2,3 by rotating
-        mov     cl, al
-        and     al, 0F0h               ; preserve upper bits
-        mov     ch, cl
-        and     ch, 03h                 ; original bits 0-1
-        shl     ch, 2                   ; -> bits 2-3
-        or      al, ch
-        and     cl, 0Ch                 ; original bits 2-3 
-        shr     cl, 2                   ; -> bits 0-1
-        or      al, cl
-.no_swap:
-        not     al                      ; invert: now 1 = direction pressed
-        and     al, 0Fh                 ; keep only direction bits
+        mov     al, [joy_dir_state]     ; read direction state set by INT 09h
 
         ;--- Acceleration logic ---
+        test    al, al
+        jz      .no_movement
         cmp     al, [joy_last_dir]
         je      .same_dir
         mov     [joy_last_dir], al
@@ -331,33 +277,22 @@ read_joystick:
         inc     byte [joy_accel_count]
 
 .calc_speed:
-        ;--- Determine speed: base speed, doubled if holding long enough ---
-        mov     si, [joy_speed]         ; base speed (1-5 pixels per tick)
+        mov     si, [joy_speed]         ; base speed (pixels per tick)
         cmp     byte [joy_accel_count], 0
-        jz      .no_accel_yet
+        jz      .apply_dirs
         mov     cl, [joy_accel_count]
         cmp     cl, [joy_accel_thresh]
-        jb      .no_accel_yet
+        jb      .apply_dirs
         shl     si, 1                   ; double speed after threshold
         cmp     cl, 30                  ; even faster after ~1.6 seconds
-        jb      .no_accel_yet
+        jb      .apply_dirs
         shl     si, 1                   ; 4x speed
-.no_accel_yet:
 
-        ;--- Apply directions ---
-        ; AL bit layout after inversion: bit0=Right, bit1=Down, bit2=Left, bit3=Up
-        ; (This is the standard IBM game port axis mapping)
-        ; NOTE: On actual PC1 hardware the mapping may be different.
-        ;       The /S switch swaps axes if needed.
-
-        test    al, al
-        jz      .no_movement
-
-        ;--- AL has direction bits: bit0=Right, bit1=Down, bit2=Left, bit3=Up ---
+.apply_dirs:
         mov     cl, al                  ; save direction bits in CL
 
         ;--- Horizontal: Right (bit 0) and Left (bit 2) ---
-        mov     ax, 0                   ; delta X
+        mov     ax, 0
         test    cl, 01h                 ; Right?
         jz      .no_right
         add     ax, si
@@ -393,82 +328,212 @@ read_joystick:
         mov     [MouseY_Sum], ax
         dec     bx
 .skip_y:
-        jmp     .check_buttons
+        jmp     .done
 
 .no_movement:
         mov     byte [joy_accel_count], 0
         mov     byte [joy_last_dir], 0
 
-.check_buttons:
-        ;--- Check if button state changed since last time ---
-        ; Button changes are handled in a simplified way here:
-        ; The full button press/release tracking is done by checking
-        ; Button_Status which we set at the start of this routine.
-        ; We just need to flag if the cursor should be updated.
-
-.done:  ret
+.done:
+        ;--- Check for pending button events (set by INT 09h) ---
+        mov     al, [joy_btn_dirty]
+        test    al, al
+        jz      .no_btn
+        mov     byte [joy_btn_dirty], 0
+        or      [Last_mask], al         ; set event mask bits (2=press, 4=release)
+        ; Update press/release counters
+        test    al, 2                   ; press?
+        jz      .not_press
+        inc     word [LB_Count_press]
+        mov     si, [MouseX_Sum]
+        mov     [LB_PosX_last_press], si
+        mov     si, [MouseY_Sum]
+        mov     [LB_PosY_last_press], si
+.not_press:
+        test    al, 4                   ; release?
+        jz      .not_release
+        inc     word [LB_Count_releases]
+        mov     si, [MouseX_Sum]
+        mov     [LB_PosX_last_release], si
+        mov     si, [MouseY_Sum]
+        mov     [LB_PosY_last_release], si
+.not_release:
+        dec     bx                      ; BL = FFh = something changed
+.no_btn:
+        ret
 
 ;============================================================================
-; INT 09h handler - Keyboard (same as original mouse driver)
+; INT 09h handler - Keyboard interrupt with Scroll Lock joystick toggle
+;
+; Scroll Lock toggles joystick mode on/off:
+;   ON  = Arrow keys and Space are intercepted for mouse control
+;   OFF = All keys pass through normally to DOS
+;
+; Joystick scan codes (PC1 default mapping):
+;   Up=48h, Down=50h, Left=4Bh, Right=4Dh, Fire=39h (Space)
 ;============================================================================
-INT_09bis:      push    ax
-                call    Has_been_pressed_a_Mkey
-                or      al, al
-                jnz     INT_09.pressed
-                pop     ax
-                jmp     far [cs:Old_INT09_MONK]
+INT_09bis:
+        push    ax
+        in      al, 60h
+        call    check_joy_input
+        jc      .consumed
+        pop     ax
+        jmp     far [cs:Old_INT09_MONK]
+.consumed:
+        pop     ax
+        iret
 
-INT_09:         push    ax
-                call    Has_been_pressed_a_Mkey
-                or      al, al
-                jz      GoTo_OldInt
-.pressed:       pusha
-                push    es
-                push    ds
-                push    cs
-                pop     ds
-                mov     ah, [Button_Status]     ; use joystick button state
-                test    al, 4
-                jnz     short .loc_DE6
-                test    al, 80h
-                jnz     short .loc_DE0
-                or      ah, 2
-                jmp     short .loc_DF3
-.loc_DE0:       and     ah, 1
-                jmp     short .loc_DF3
-.loc_DE6:       test    al, 80h
-                jnz     short .loc_DF0
-                or      ah, 1
-                jmp     short .loc_DF3
-.loc_DF0:       and     ah, 2
-.loc_DF3:       and     ah, 3
-                mov     [Button_Status], ah
-                mov     al, ah
-                mov     byte [Last_mask], 0
-                call    Update_keyCount
-                call    Call_User
-                pop     ds
-                pop     es
-                popa
-                pop     ax
-                iret
+INT_09:
+        push    ax
+        in      al, 60h
+        call    check_joy_input
+        jc      .consumed
+        pop     ax
+        jmp     far [cs:Old_INT09]
+.consumed:
+        pop     ax
+        iret
 
-GoTo_OldInt:    pop     ax
-                jmp     far [cs:Old_INT09]
+;============================================================================
+; check_joy_input - Check if scan code should be consumed
+;
+; Input:  AL = scan code from port 60h
+; Output: CF = 1 if consumed (EOI sent), CF = 0 if pass through
+;============================================================================
+check_joy_input:
+        ; --- Scroll Lock toggle ---
+        cmp     al, 46h                 ; Scroll Lock make
+        je      .toggle
+        cmp     al, 0C6h                ; Scroll Lock break
+        je      .eat
 
-Has_been_pressed_a_Mkey:
-                in      al, 64h
-                and     al, 0D0h
-                jz      short .loc_1C2C
-                xor     ax, ax
-                ret
-.loc_1C2C:      in      al, 60h
-                mov     ah, al
-                cli
-                mov     al, 61h
-                out     20h, al
-                sti
-                mov     al, ah
+        ; --- If joystick mode off, pass everything through ---
+        cmp     byte [cs:joy_active], 0
+        je      .pass
+
+        ; --- Joystick mode ON: check for arrow keys / Space ---
+        mov     ah, al
+        and     ah, 7Fh                 ; strip break bit
+        cmp     ah, 48h                 ; Up
+        je      .joy
+        cmp     ah, 50h                 ; Down
+        je      .joy
+        cmp     ah, 4Bh                 ; Left
+        je      .joy
+        cmp     ah, 4Dh                 ; Right
+        je      .joy
+        cmp     ah, 39h                 ; Space
+        je      .joy
+
+.pass:
+        clc
+        ret
+
+.toggle:
+        xor     byte [cs:joy_active], 1
+        jnz     .eat                    ; turned ON - just consume key
+        ; Turned OFF: stop all joystick movement and release button
+        mov     byte [cs:joy_dir_state], 0
+        and     byte [cs:Button_Status], 0FEh
+
+.eat:
+        ; Send specific EOI for IRQ 1 and return consumed
+        cli
+        push    ax
+        mov     al, 61h
+        out     20h, al
+        pop     ax
+        sti
+        stc
+        ret
+
+.joy:
+        ; Send EOI first, then process joystick input
+        push    ax
+        cli
+        mov     al, 61h
+        out     20h, al
+        sti
+        pop     ax
+        call    handle_joy_event
+        stc
+        ret
+
+;============================================================================
+; handle_joy_event - Process a joystick scan code
+;
+; Input: AL = scan code (bit 7 = break/release)
+;        EOI already sent by caller.
+;
+; Directions: set/clear bits in joy_dir_state (polled by INT 08h).
+; Fire button: set/clear Button_Status and flag joy_btn_dirty so that
+;              press/release counters and Call_User run from INT 08h.
+;============================================================================
+handle_joy_event:
+        mov     ah, al
+        and     ah, 7Fh                 ; AH = key without break bit
+
+        cmp     ah, 48h                 ; Up arrow
+        je      .dir_up
+        cmp     ah, 50h                 ; Down arrow
+        je      .dir_down
+        cmp     ah, 4Bh                 ; Left arrow
+        je      .dir_left
+        cmp     ah, 4Dh                 ; Right arrow
+        je      .dir_right
+        cmp     ah, 39h                 ; Space (fire button)
+        je      .btn_fire
+        ret                             ; unknown joystick code, ignore
+
+;--- Direction handlers: update joy_dir_state bits ---
+.dir_up:
+        test    al, 80h
+        jnz     .up_brk
+        or      byte [cs:joy_dir_state], 08h
+        ret
+.up_brk:
+        and     byte [cs:joy_dir_state], 0F7h
+        ret
+
+.dir_down:
+        test    al, 80h
+        jnz     .dn_brk
+        or      byte [cs:joy_dir_state], 02h
+        ret
+.dn_brk:
+        and     byte [cs:joy_dir_state], 0FDh
+        ret
+
+.dir_left:
+        test    al, 80h
+        jnz     .lt_brk
+        or      byte [cs:joy_dir_state], 04h
+        ret
+.lt_brk:
+        and     byte [cs:joy_dir_state], 0FBh
+        ret
+
+.dir_right:
+        test    al, 80h
+        jnz     .rt_brk
+        or      byte [cs:joy_dir_state], 01h
+        ret
+.rt_brk:
+        and     byte [cs:joy_dir_state], 0FEh
+        ret
+
+;--- Fire button: just set flag, INT 08h will handle the event safely ---
+.btn_fire:
+        test    al, 80h
+        jnz     .fire_brk
+        or      byte [cs:Button_Status], 01h
+        mov     byte [cs:joy_btn_dirty], 2   ; bit 1 = left press event
+        ret
+.fire_brk:
+        and     byte [cs:Button_Status], 0FEh
+        mov     byte [cs:joy_btn_dirty], 4   ; bit 2 = left release event
+        ret
+
 no_fun:         ret
 
 no_user_fun:    retf
@@ -1039,18 +1104,20 @@ welcome DB  'JOYMOUSE-PC1 v1.0 - Joystick to Mouse Driver',0Dh,0Ah
 already DB  'A mouse driver is already installed',0Dh,0Ah,'$'
 ForceIn db  'F: Installing over existing driver',0Dh,0Ah,'$'
 notPC1  db  'This driver works only on OLIVETTI PRODEST PC1.',0Dh,0Ah,'$'
-joyinfo DB  'Joystick mode: directions=cursor, fire=left button',0Dh,0Ah,'$'
+joyinfo DB  'Scroll Lock toggles joystick mode ON/OFF',0Dh,0Ah
+        DB  '  ON: directions=cursor, fire=left click',0Dh,0Ah,'$'
 speedmsg DB 'Speed: $'
 EGAVGA  DB  'EGA/VGA Patch installed',0Dh,0Ah,'$'
 
 helpmsg db  0Ah,0Dh,"JOYMOUSE - Atari joystick to INT 33h mouse emulation",0Ah,0Dh
+        db  0Ah,0Dh
+        db  "Scroll Lock toggles joystick mode ON/OFF.",0Ah,0Dh
         db  0Ah,0Dh
         db  "Parameters:",0Ah,0Dh
         db  "  /I - Do not check if on Olivetti Prodest PC1",0Ah,0Dh
         db  "  /M - Show cursor immediately",0Ah,0Dh
         db  "  /F - Force installation over existing driver",0Ah,0Dh
         db  "  /E - Force EGA/VGA Patch",0Ah,0Dh
-        db  "  /S - Swap X/Y joystick axes",0Ah,0Dh
         db  "  /1 - Slow cursor speed",0Ah,0Dh
         db  "  /2 - Medium cursor speed (default)",0Ah,0Dh
         db  "  /3 - Fast cursor speed",0Ah,0Dh
@@ -1225,7 +1292,6 @@ nocheck         EQU     BIT1
 showcurs        EQU     BIT2
 forceinst       EQU     BIT3
 forceEGA        EQU     BIT4
-swapxy_flag     EQU     BIT5
 
 process_cmdline:
         push    ds
@@ -1292,8 +1358,6 @@ process_cmdline:
         jz      .setforceinst
         cmp     al, "E"
         jz      .setforceEGA
-        cmp     al, "S"
-        jz      .setswapxy
         cmp     al, "1"
         jz      .setspeed1
         cmp     al, "2"
@@ -1316,9 +1380,6 @@ process_cmdline:
         jmp     .checkflags
 .setforceEGA:
         or      byte [cmdlineflags], forceEGA
-        jmp     .checkflags
-.setswapxy:
-        mov     byte [joy_swapxy], 1
         jmp     .checkflags
 .setspeed1:
         mov     word [joy_speed], 2

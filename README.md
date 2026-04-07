@@ -121,6 +121,31 @@ mouse.com /M    (Show cursor immediately)
 
 See [drivers/mouse/README.md](drivers/mouse/README.md) for full documentation.
 
+### JoyMouse Driver (Retro Erik)
+
+INT 33h mouse emulation using an Atari-style joystick on the PC1's DE-9 mouse port. Based on the Mouse Driver by Simone Riminucci.
+
+**Location:** `drivers/joymouse/`
+
+- `JoyMouse.asm` — Driver source
+- `joymouse.com` — Compiled executable
+- `JOY.EXE` — Official Olivetti joystick remapping utility
+
+The PC1 translates joystick inputs into keyboard scan codes (arrow keys + Space). The driver intercepts these in INT 09h and converts them to mouse events. **Scroll Lock** toggles joystick mode on/off so the keyboard works normally when not gaming.
+
+**Building:**
+```
+nasm -f bin -o joymouse.com JoyMouse.asm
+```
+
+**Running:**
+```
+joymouse.com /M    (Show cursor immediately)
+joymouse.com /3    (Fast cursor speed)
+```
+
+See [drivers/joymouse/README.md](drivers/joymouse/README.md) for full documentation.
+
 ## Tools
 
 Utility programs for testing and debugging V6355D behavior.
@@ -136,6 +161,7 @@ Utility programs for testing and debugging V6355D behavior.
 - `crtc_restarts_test.asm` / `crtc_restarts_test.com` — CRTC restart behavior test
 - `flip-hidden-test.asm` / `fliptest.com` — Hidden mode flip test
 - `test-ansi.asm` / `test-ansi.com` — ANSI escape code test
+- `joytest2.asm` / `joytest2.com` — Enhanced joystick port scanner (0x3DA status + CRTC R16/R17 mouse counters)
 - `make_test_bmp.ps1` — PowerShell script to generate test BMP images
 - `test_bands.bmp` / `test_vstripe.bmp` — Test images
 
