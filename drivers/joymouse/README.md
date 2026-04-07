@@ -59,6 +59,14 @@ The PC1's DE-9 mouse port is designed for a quadrature mouse. When no mouse is d
 
 Only joystick Up and Down are wired to the V6355D switch pins (readable on port 0x3DA bits 1–2). Left, Right, and Fire connect to quadrature encoder pins which don't produce usable signals from a digital joystick's on/off switches. Therefore all five inputs are read via scan code interception.
 
+## Commodore 1351 mouse compatibility (untested)
+
+The Commodore 1351 mouse in **joystick emulation mode** should work with this driver without any hardware modification or adapter. In this mode the 1351 outputs standard Atari joystick direction pulses on the same DE-9 pins, and pin 9 is not grounded, so the PC1 stays in joystick mode.
+
+To force the 1351 into joystick emulation mode, **hold down the right mouse button while plugging it in** (or while powering on the PC1).
+
+Movement won't be proportional — it behaves like a joystick — but combined with the driver's acceleration it should provide usable mouse control. This would make the 1351 the only off-the-shelf mouse from another platform that works on the PC1 without rewiring.
+
 ## Tested with
 
 - Norton SI (text mode)

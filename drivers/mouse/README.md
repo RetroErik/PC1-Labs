@@ -102,6 +102,24 @@ The driver uses the V6335D sprite engine:
 - **Masking**: AND/XOR monochrome with color attribute (register 64h)
 - **Ports**: 3DDh (control), 3DEh (data), 0DDh/0DEh (shape upload)
 
+## Mouse Port Compatibility
+
+The PC1's DE-9 mouse port uses a unique pinout that is **not compatible** with Amstrad or Atari ST mice without a passive adapter cable:
+
+| PC1 Pin | PC1 expects  | Amstrad mouse sends | Atari ST mouse sends | Atari joystick sends |
+|---------|-------------|--------------------|--------------------|---------------------|
+| 1       | Right button | XA                 | XB                 | Up (switch)         |
+| 2       | Left button  | XB                 | XA                 | Down (switch)       |
+| 3       | XA           | YA                 | YA                 | Left (switch)       |
+| 4       | YB           | YB ✓               | YB ✓               | Right (switch)      |
+| 6       | YA           | Left button        | Left button        | Fire (switch)       |
+| 7       | XB           | +5V                | +5V                | +5V                 |
+| 9       | ENA (low)    | Right button       | Right button       | n/c (floats high)   |
+
+Neither the Amstrad nor Atari ST mouse will work directly — quadrature signals land on button pins and vice versa, and pin 9 (ENA) receives a button signal instead of ground. A passive rewiring adapter is the simplest solution.
+
+When pin 9 floats (joystick connected), the 8042 keyboard controller reads the switch states and generates arrow key and Space scan codes.
+
 ## Hardware Detection (Bypassed)
 
 The original driver checks:
