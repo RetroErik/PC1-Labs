@@ -475,7 +475,11 @@ copy_image_at_position:
     ; Get image position
     mov ax, [image_x]           ; AX = X offset (signed, in pixels)
     sar ax, 1                   ; Convert to bytes (2 pixels per byte)
-    mov [temp_x_bytes], ax      ; Save X offset in bytes
+    mov bx, ax                  ; BX = X offset in bytes (kept in register
+                                ; instead of temp_x_bytes memory variable —
+                                ; saves ~13 cycles × 200 rows/frame, but
+                                ; not visibly faster; VRAM writes dominate)
+                                ; (Inspired by Jim Leonard's suggestions)
     
     mov bp, [image_y]           ; BP = Y offset (always even, in scanlines)
     sar bp, 1                   ; BP = Y offset in row-pairs (for bank offset)
@@ -506,7 +510,7 @@ copy_image_at_position:
     pop dx
     
     ; Copy with X offset applied
-    mov ax, [temp_x_bytes]
+    mov ax, bx                  ; AX = X offset from register (not memory)
     call copy_row_with_offset
     jmp .even_next
     
@@ -551,7 +555,7 @@ copy_image_at_position:
     pop dx
     
     ; Copy with X offset applied
-    mov ax, [temp_x_bytes]
+    mov ax, bx                  ; AX = X offset from register (not memory)
     call copy_row_with_offset
     jmp .odd_next
     
